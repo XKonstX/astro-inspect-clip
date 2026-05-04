@@ -1,0 +1,47 @@
+{
+  "name": "astro-inspect-clip",
+  "version": "1.0.0",
+  "description": "Astro dev-toolbar app to inspect elements and copy source info + instructions to clipboard",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "astro",
+    "astro-integration",
+    "astro-devtoolbar",
+    "devtools",
+    "inspect",
+    "clipboard",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/konst/astro-inspect-clip"
+  },
+  "homepage": "https://github.com/konst/astro-inspect-clip#readme",
+  "peerDependencies": {
+    "astro": "^4.0.0 || ^5.0.0 || ^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "astro": "^6.1.10",
+    "tsup": "^8.4.0",
+    "typescript": "^5.9.3"
+  }
+}
