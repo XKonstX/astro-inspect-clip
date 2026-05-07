@@ -39,6 +39,20 @@ then opened DevTools, searched the DOM tree, and still couldn't find the source 
 
 ---
 
+## Version 1.0.3
+
+This patch makes inspect clicks more reliable when Astro's dev toolbar and the
+built-in Audit app touch source annotations at slightly different times.
+
+- Caches both `data-astro-source-file` and `data-astro-source-loc`, even when
+  only one attribute is present on an element
+- Resolves the nearest source location while inheriting the file path from the
+  matching ancestor when Astro splits that metadata across elements
+- Prevents page-level click handlers from racing the inspector click
+- Fixes the fallback panel markup shown when no source info is available
+
+---
+
 ## Install
 
 ```bash
@@ -73,13 +87,14 @@ and start clicking elements.
 
 ## How it works
 
-Astro adds `data-astro-source-file` and `data-astro-source-loc` attributes to every
-element during development. The built-in Audit toolbar removes them — this plugin
-captures them **before** they disappear using a MutationObserver cache.
+Astro adds `data-astro-source-file` and `data-astro-source-loc` attributes to
+elements during development. The built-in Audit toolbar removes them — this
+plugin captures both pieces of metadata **before** they disappear using a
+MutationObserver cache.
 
 When you click an element, the plugin:
 
-1. Resolves the source file and line number (walks up the DOM if needed)
+1. Resolves the source file and line number, walking up the DOM if needed
 2. Shows a panel with file path, tag, classes, and HTML snippet
 3. Lets you write an optional instruction
 4. Copies everything to clipboard in a clean, structured format

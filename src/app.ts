@@ -4,37 +4,18 @@ import type { ElementInfo, AppState, SelectedEntry } from './types.js';
 const icon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14zm-7-2h4v-1h-4v1zm0-3h4v-1h-4v1zm0-3h4v-1h-4v1zm-2 6H7v1h3v-1zm0-3H7v1h3v-1zm0-3H7v1h3v-1z"/></svg>';
 
 /**
- * Find the nearest ancestor (or self) with data-astro-source-file.
+ * Read Astro source annotations from the cache first, then from DOM attributes.
  */
-function findSourceFile(element: HTMLElement): string | null {
-  const cache = (window as any).__ai_note_source_cache__ as Map<HTMLElement, { file: string; loc: string }> | undefined;
-  let el: HTMLElement | null = element;
-  while (el) {
-    if (el.closest('astro-dev-toolbar')) return null;
-    const cached = cache?.get(el);
-    const file = cached?.file ?? el.getAttribute('data-astro-source-file');
-    if (file) return file;
-    el = el.parentElement;
-  }
-  return null;
-}
-
-function getElementInfo(element: HTMLElement): ElementInfo | null {
-  // 1) Try the global cache first (populated by injected MutationObserver script)
+function readSourceAnnotation(element: HTMLElement): { file: string; loc: string } {
   const cache = (window as any).__ai_note_source_cache__ as Map<HTMLElement, { file: string; loc: string }> | undefined;
   const cached = cache?.get(element);
-  let filePath = cached?.file ?? element.getAttribute('data-astro-source-file');
-  const location = cached?.loc ?? element.getAttribute('data-astro-source-loc');
+  return {
+    file: cached?.file ?? element.getAttribute('data-astro-source-file') ?? '',
+    loc: cached?.loc ?? element.getAttribute('data-astro-source-loc') ?? '',
+  };
+}
 
-  if (!location) return null;
-
-  // If element has loc but no file, inherit file from nearest ancestor
-  if (!filePath) {
-    filePath = findSourceFile(element);
-  }
-
-  if (!filePath) return null;
-
+function getElementInfo(element: HTMLElement, filePath: string, location: string): ElementInfo {
   // Calculate relative path from project root
   const root = (window as any).__astro_dev_toolbar__?.root as string | undefined;
   const relativePath = root
@@ -1208,21 +1189,42 @@ export default {
     }
 
     /**
-     * Resolve an element to the nearest one (or itself) that has source
-     * location info. Stops at the first element with data-astro-source-loc,
-     * inheriting the file path from the nearest ancestor if needed.
+     * Resolve an element to the nearest source location, while allowing the
+     * file path to be inherited from an ancestor. Astro and the Audit toolbar
+     * can leave those two pieces on different elements depending on timing.
      */
     function resolveSourceElement(element: HTMLElement) {
-      let resolved = element;
-      let info = getElementInfo(resolved);
+      let resolved: HTMLElement | null = null;
+      let filePath = '';
+      let location = '';
+      let current: HTMLElement | null = element;
 
-      while (!info && resolved.parentElement) {
-        if (resolved.parentElement.closest('astro-dev-toolbar')) break;
-        resolved = resolved.parentElement;
-        info = getElementInfo(resolved);
+      while (current) {
+        if (current.closest('astro-dev-toolbar')) break;
+
+        const source = readSourceAnnotation(current);
+        if (!location) {
+          if (source.loc) {
+            location = source.loc;
+            resolved = current;
+            filePath = source.file;
+          }
+        } else if (!filePath && source.file) {
+          filePath = source.file;
+        }
+
+        if (location && filePath && resolved) {
+          break;
+        }
+
+        current = current.parentElement;
       }
 
-      return { element: resolved, info };
+      if (!resolved || !filePath || !location) {
+        return { element, info: null };
+      }
+
+      return { element: resolved, info: getElementInfo(resolved, filePath, location) };
     }
 
     function selectElement(element: HTMLElement) {
@@ -1272,6 +1274,7 @@ export default {
             Re-select
           </button>
           </div>
+        </div>
         <div class="ai-note-element-info">
           <div class="ai-note-empty-state">
             <div class="row">
@@ -1321,6 +1324,7 @@ export default {
 
       e.preventDefault();
       e.stopPropagation();
+      e.stopImmediatePropagation();
       selectElement(target);
     }
 

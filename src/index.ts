@@ -14,15 +14,19 @@ const CACHE_SCRIPT = `
   const cache = new Map();
   window.__ai_note_source_cache__ = cache;
 
+  const SOURCE_SELECTOR = '[data-astro-source-file], [data-astro-source-loc]';
+
   function capture(el) {
     const file = el.getAttribute('data-astro-source-file');
-    if (file) {
-      cache.set(el, { file, loc: el.getAttribute('data-astro-source-loc') || '' });
+    const loc = el.getAttribute('data-astro-source-loc');
+    if (file || loc) {
+      cache.set(el, { file: file || '', loc: loc || '' });
     }
   }
 
   function scanAll(root) {
-    root.querySelectorAll('[data-astro-source-file]').forEach(capture);
+    capture(root);
+    root.querySelectorAll(SOURCE_SELECTOR).forEach(capture);
   }
 
   // Initial scan — capture everything available right now
@@ -35,7 +39,7 @@ const CACHE_SCRIPT = `
         for (const node of m.addedNodes) {
           if (node.nodeType === 1) {
             capture(node);
-            if (node.querySelectorAll) node.querySelectorAll('[data-astro-source-file]').forEach(capture);
+            if (node.querySelectorAll) node.querySelectorAll(SOURCE_SELECTOR).forEach(capture);
           }
         }
         // Clean up cache entries for removed elements
@@ -44,14 +48,15 @@ const CACHE_SCRIPT = `
             cache.delete(node);
             // Also clean descendants
             if (node.querySelectorAll) {
-              node.querySelectorAll('[data-astro-source-file]').forEach((el) => cache.delete(el));
+              node.querySelectorAll(SOURCE_SELECTOR).forEach((el) => cache.delete(el));
             }
           }
         }
       } else if (m.type === 'attributes') {
         const el = m.target;
-        const current = el.getAttribute('data-astro-source-file');
-        if (current) {
+        const file = el.getAttribute('data-astro-source-file');
+        const loc = el.getAttribute('data-astro-source-loc');
+        if (file || loc) {
           capture(el);
         }
         // If attribute was removed, our cache entry stays valid.

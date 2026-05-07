@@ -1,6 +1,6 @@
 {
   "name": "astro-inspect-clip",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Astro dev-toolbar app to inspect elements and copy source info + instructions to clipboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,7 +32,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/XKonstX/astro-inspect-clip"
+    "url": "git+https://github.com/XKonstX/astro-inspect-clip.git"
   },
   "homepage": "https://github.com/XKonstX/astro-inspect-clip#readme",
   "peerDependencies": {
