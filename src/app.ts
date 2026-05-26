@@ -15,12 +15,46 @@ function readSourceAnnotation(element: HTMLElement): { file: string; loc: string
   };
 }
 
-function getElementInfo(element: HTMLElement, filePath: string, location: string): ElementInfo {
-  // Calculate relative path from project root
+function hasSourceCache(): boolean {
+  return Boolean((window as any).__ai_note_source_cache__);
+}
+
+function ensureSourceCache() {
+  if (hasSourceCache()) return;
+
+  const cache = new Map<HTMLElement, { file: string; loc: string }>();
+  (window as any).__ai_note_source_cache__ = cache;
+  (window as any).__ai_note_source_cache_late__ = true;
+
+  const capture = (element: Element) => {
+    if (!(element instanceof HTMLElement)) return;
+    const file = element.getAttribute('data-astro-source-file') ?? '';
+    const loc = element.getAttribute('data-astro-source-loc') ?? '';
+    if (file || loc) cache.set(element, { file, loc });
+  };
+
+  if (document.documentElement) {
+    capture(document.documentElement);
+    document.documentElement
+      .querySelectorAll('[data-astro-source-file], [data-astro-source-loc]')
+      .forEach(capture);
+  }
+}
+
+function sourceCacheNeedsReload(): boolean {
+  if (!(window as any).__ai_note_source_cache_late__) return false;
+
+  const cache = (window as any).__ai_note_source_cache__ as Map<HTMLElement, { file: string; loc: string }> | undefined;
+  return !cache || cache.size === 0;
+}
+
+function toRelativePath(filePath: string): string {
   const root = (window as any).__astro_dev_toolbar__?.root as string | undefined;
-  const relativePath = root
-    ? (filePath.startsWith(root) ? filePath.slice(root.length) : filePath)
-    : filePath;
+  return root && filePath.startsWith(root) ? filePath.slice(root.length) : filePath;
+}
+
+function getElementInfo(element: HTMLElement, filePath: string, location: string): ElementInfo {
+  const relativePath = toRelativePath(filePath);
 
   const tagName = element.tagName.toLowerCase();
   const classes = cleanClasses(element.className
@@ -62,20 +96,84 @@ function cleanHtml(html: string): string {
   ).replace(/\s{2,}/g, ' ').trim();
 }
 
+function getTraversalParent(element: HTMLElement): HTMLElement | null {
+  if (element.parentElement) return element.parentElement;
+
+  const root = element.getRootNode();
+  if (root instanceof ShadowRoot && root.host instanceof HTMLElement) {
+    return root.host;
+  }
+
+  return null;
+}
+
+function isDevToolbarElement(element: HTMLElement): boolean {
+  if (element.closest('astro-dev-toolbar')) return true;
+
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot
+    && root.host instanceof HTMLElement
+    && Boolean(root.host.closest('astro-dev-toolbar'));
+}
+
+function describeElement(element: HTMLElement): string {
+  const tagName = element.tagName.toLowerCase();
+  const id = element.id ? `#${element.id}` : '';
+  const classes = cleanClasses(typeof element.className === 'string' ? element.className : '')
+    .split(', ')
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((className) => `.${className}`)
+    .join('');
+
+  return `${tagName}${id}${classes}`;
+}
+
+function buildDomPath(element: HTMLElement): string {
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+
+  while (current && parts.length < 6) {
+    if (isDevToolbarElement(current)) break;
+    parts.push(describeElement(current));
+    if (current.tagName.toLowerCase() === 'body') break;
+    current = getTraversalParent(current);
+  }
+
+  return parts.reverse().join(' > ');
+}
+
+interface SourceCandidate {
+  element: HTMLElement;
+  file: string;
+  loc: string;
+  distance: number;
+}
+
+interface NoSourceDiagnostic {
+  title: string;
+  message: string;
+  domPath: string;
+  nearest: SourceCandidate | null;
+}
+
 const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>';
 
 const COPIED_ICON = '<svg width="14" height="14" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#fff" d="M9.47334.806574C9.41136.744088 9.33763.694492 9.25639.660646S9.08802.609375 9.00001.609375 8.82486.6268 8.74362.660646s-.15497.083442-.21695.145928L3.56001 5.77991 1.47334 3.68657c-.06435-.06216-.14031-.11103-.22354-.14383-.08324-.03281-.17212-.04889-.261578-.04735-.089454.00155-.177727.0207-.259779.05637-.082052.03566-.156277.08713-.218436.15148-.062159.06435-.111035.14031-.143837.22355-.032803.08323-.04889.17212-.047342.26157.001547.08945.020699.17773.056361.25978.035663.08205.087137.15627.151485.21843l2.559996 2.56c.06198.06249.13571.11209.21695.14593.08124.03385.16838.05127.25639.05127s.17514-.01742.25638-.05127c.08124-.03384.15498-.08344.21695-.14593l5.44-5.44c.06767-.06242.12168-.13819.15861-.22253.03694-.08433.05601-.1754.05601-.26747 0-.09206-.01907-.18313-.05601-.26747-.03693-.08433-.09094-.160098-.15861-.222526Z"/></svg>';
 
 function handleCopy(btn: HTMLButtonElement, text: string) {
+  btn.disabled = true;
   navigator.clipboard.writeText(text).then(() => {
     btn.innerHTML = `${COPIED_ICON} Copied!`;
     setTimeout(() => {
       btn.innerHTML = `${COPY_ICON} Copy`;
+      btn.disabled = false;
     }, 2000);
   }).catch(() => {
     btn.textContent = 'Copy failed';
     setTimeout(() => {
       btn.innerHTML = `${COPY_ICON} Copy`;
+      btn.disabled = false;
     }, 2000);
   });
 }
@@ -92,6 +190,8 @@ export default {
       selectedElements: [],
       hoverOutlineElement: null,
     };
+
+    ensureSourceCache();
 
     // ─── Toggle icons ───────────────────────────────────────────
     const selectIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path fill="currentColor" d="M6.646 10.646a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1-.708.708L7 11.207l-1.646 1.647a.5.5 0 1 1-.708-.708l2-2ZM2 2.5A.5.5 0 0 1 2.5 2h11a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 2 14v-11Zm1 1v10h10v-10H3Z"/></svg>';
@@ -131,6 +231,9 @@ export default {
       .ai-note-canvas {
         font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
         color: #c0c4d0;
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
@@ -140,6 +243,8 @@ export default {
         flex-direction: column;
         gap: 12px;
         width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
         max-height: 420px;
         overflow-y: auto;
         scrollbar-width: thin;
@@ -154,12 +259,14 @@ export default {
         display: flex;
         align-items: center;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: 12px;
         padding-bottom: 10px;
         border-bottom: 1px solid rgba(88, 76, 116, 0.25);
         position: sticky;
         top: 0;
         z-index: 2;
+        min-width: 0;
         background: #161820;
       }
 
@@ -169,9 +276,22 @@ export default {
         font-weight: 700;
         color: #fff;
         letter-spacing: 0.04em;
+        flex: 0 0 auto;
+      }
+
+      .ai-note-header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+        min-width: 0;
       }
 
       .ai-note-element-info {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
         background:
           linear-gradient(180deg, rgba(26, 24, 42, 0.55) 0%, rgba(18, 16, 30, 0.55) 100%),
       linear-gradient(180deg, rgba(29, 31, 40, 0.98), rgba(22, 24, 32, 0.98));
@@ -184,6 +304,10 @@ export default {
           inset 0 1px 0 rgba(255, 255, 255, 0.03),
           0 2px 8px rgba(0, 0, 0, 0.2),
           0 0 0 1px rgba(113, 24, 226, 0.06);
+      }
+
+      .ai-note-header > .ai-note-element-info {
+        flex: 1 0 100%;
       }
 
       .ai-note-info-section {
@@ -243,8 +367,13 @@ export default {
         filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.3));
       }
 
+      .ai-note-file-meta {
+        min-width: 0;
+      }
+
       .ai-note-file-path code {
         display: inline-block;
+        max-width: 100%;
         font-size: 12px;
         font-weight: 600;
         color: #f0e7fd;
@@ -268,6 +397,7 @@ export default {
         font-size: 11px;
         line-height: 1.45;
         letter-spacing: 0.01em;
+        overflow-wrap: anywhere;
       }
 
       .ai-note-element-info pre {
@@ -341,6 +471,16 @@ export default {
         text-decoration-color: rgba(184, 154, 245, 0.5);
       }
 
+      .ai-note-open-editor:focus-visible,
+      .ai-note-toggle-btn:focus-visible,
+      .ai-note-reinspect-btn:focus-visible,
+      .ai-note-copy-btn:focus-visible,
+      .ai-note-done-btn:focus-visible,
+      .ai-note-selected-item .remove-btn:focus-visible {
+        outline: 2px solid rgba(196, 181, 253, 0.75);
+        outline-offset: 2px;
+      }
+
       .ai-note-placeholder {
         text-align: center;
         padding: 32px 16px 36px;
@@ -355,7 +495,11 @@ export default {
         opacity: 0.75;
       }
 
-      /* Note section — sticky at bottom so copy button stays visible */
+      .ai-note-placeholder-actions {
+        margin-top: 12px;
+      }
+
+      /* Note section - sticky at bottom so copy button stays visible */
       .ai-note-note-section {
         display: flex;
         flex-direction: column;
@@ -451,6 +595,17 @@ export default {
           inset 0 1px 0 rgba(255, 255, 255, 0.08);
       }
 
+      .ai-note-copy-btn:disabled {
+        cursor: default;
+        opacity: 0.78;
+        transform: none;
+      }
+
+      .ai-note-copy-btn:disabled:hover {
+        filter: none;
+        transform: none;
+      }
+
       .ai-note-copy-btn svg {
         flex-shrink: 0;
       }
@@ -469,7 +624,7 @@ export default {
         font-weight: 500;
         cursor: pointer;
         flex-shrink: 0;
-        transition: all 0.2s ease;
+        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
         letter-spacing: 0.01em;
       }
 
@@ -491,6 +646,14 @@ export default {
       }
 
       .ai-note-empty-state p {
+        margin: 0;
+      }
+
+      .ai-note-diagnostic-title {
+        color: #d8ccf8;
+        font-size: 12px;
+        font-weight: 650;
+        line-height: 1.45;
         margin: 0;
       }
 
@@ -529,10 +692,16 @@ export default {
         font-size: 13px;
         font-weight: 500;
         cursor: pointer;
-        transition: all 0.2s ease;
+        transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
         letter-spacing: 0.01em;
         white-space: nowrap;
         line-height: 1;
+      }
+
+      .ai-note-toggle-btn[aria-pressed="true"] {
+        background: rgba(139, 92, 246, 0.18);
+        color: #d4c0ff;
+        box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.25);
       }
 
       .ai-note-toggle-btn:hover {
@@ -619,6 +788,7 @@ export default {
       .ai-note-selected-item {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 8px;
         padding: 6px 8px;
         background: rgba(14, 12, 24, 0.4);
@@ -640,6 +810,7 @@ export default {
         align-items: center;
         gap: 6px;
         min-width: 0;
+        flex: 1 1 180px;
       }
 
       .ai-note-selected-item code {
@@ -656,7 +827,8 @@ export default {
       .ai-note-selected-item .item-loc {
         color: #6b6d82;
         font-size: 11px;
-        white-space: nowrap;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .ai-note-selected-item .remove-btn {
@@ -704,14 +876,14 @@ export default {
       panel.innerHTML = `
         <div class="ai-note-placeholder">
           <p>${hint}</p>
-          <div style="margin-top:12px;">
+          <div class="ai-note-placeholder-actions">
             <div class="ai-note-toggles">
-              <button class="ai-note-toggle-btn ${state.selectEnabled ? 'active' : ''}" data-action="toggle-select">
+              <button class="ai-note-toggle-btn ${state.selectEnabled ? 'active' : ''}" type="button" aria-pressed="${state.selectEnabled}" data-action="toggle-select">
                 ${selectIcon}
                 Select
               </button>
               ${state.selectEnabled ? `
-                <button class="ai-note-toggle-btn ${state.isMultiSelect ? 'active' : ''}" data-action="toggle-multi">
+                <button class="ai-note-toggle-btn ${state.isMultiSelect ? 'active' : ''}" type="button" aria-pressed="${state.isMultiSelect}" data-action="toggle-multi">
                   ${multiIcon}
                   Multi
                 </button>
@@ -743,6 +915,42 @@ export default {
           renderPlaceholder();
         });
       }
+
+      panel.dataset.visible = 'true';
+    }
+
+    function renderSourceCacheReload() {
+      panel.innerHTML = '';
+      panel.dataset.visible = 'false';
+
+      panel.innerHTML = `
+        <div class="ai-note-header">
+          <h2>Inspect & Clip</h2>
+        </div>
+        <div class="ai-note-element-info">
+          <div class="ai-note-empty-state">
+            <div class="row">
+              <div class="label">Source cache</div>
+              <p class="ai-note-diagnostic-title">Reload required</p>
+              <p class="ai-note-help">This page was loaded before Inspect & Clip could cache Astro source metadata. Reload the page once so source locations can be captured before Astro's dev tools remove them.</p>
+            </div>
+            <div class="row">
+              <div class="label">Why</div>
+              <p class="ai-note-help">Updating the plugin hot-reloads the toolbar app, but Astro's page-level cache script is only injected for newly loaded pages.</p>
+            </div>
+          </div>
+        </div>
+        <div class="ai-note-actions">
+          <button class="ai-note-copy-btn" type="button" data-action="reload-page">
+            Reload page
+          </button>
+        </div>
+      `;
+
+      const reloadBtn = panel.querySelector('[data-action="reload-page"]') as HTMLButtonElement;
+      reloadBtn.addEventListener('click', () => {
+        window.location.reload();
+      });
 
       panel.dataset.visible = 'true';
     }
@@ -863,22 +1071,21 @@ export default {
       panel.innerHTML = `
         <div class="ai-note-header">
           <h2>Inspect & Clip</h2>
-          <div style="display:flex;gap:6px;align-items:center;">
+          <div class="ai-note-header-actions">
             <div class="ai-note-toggles">
-              <button class="ai-note-toggle-btn ${state.selectEnabled ? 'active' : ''}" data-action="toggle-select">
+              <button class="ai-note-toggle-btn ${state.selectEnabled ? 'active' : ''}" type="button" aria-pressed="${state.selectEnabled}" data-action="toggle-select">
                 ${selectIcon}
                 Select
               </button>
-              <button class="ai-note-toggle-btn" data-action="toggle-multi">
+              <button class="ai-note-toggle-btn" type="button" aria-pressed="false" data-action="toggle-multi">
                 ${multiIcon}
                 Multi
               </button>
             </div>
-            <button class="ai-note-reinspect-btn" title="Select another element">
+            <button class="ai-note-reinspect-btn" type="button" title="Select another element">
               <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path fill="currentColor" d="M7.9 1.5v-.4a1.1 1.1 0 0 1 2.2 0v.4a1.1 1.1 0 1 1-2.2 0Zm-6.4 8.6a1.1 1.1 0 1 0 0-2.2h-.4a1.1 1.1 0 0 0 0 2.2h.4ZM12 3.7a1.1 1.1 0 0 0 1.4-.7l.4-1.1a1.1 1.1 0 0 0-2.1-.8l-.4 1.2a1.1 1.1 0 0 0 .7 1.4Zm-9.7 7.6-1.2.4a1.1 1.1 0 1 0 .8 2.1l1-.4a1.1 1.1 0 1 0-.6-2ZM20.8 17a1.9 1.9 0 0 1 0 2.6l-1.2 1.2a1.9 1.9 0 0 1-2.6 0l-4.3-4.2-1.6 3.6a1.9 1.9 0 0 1-1.7 1.2A1.9 1.9 0 0 1 7.5 20L2.7 5a1.9 1.9 0 0 1 2.4-2.4l15 5a1.9 1.9 0 0 1 .2 3.4l-3.7 1.6 4.2 4.3ZM19 18.3 14.6 14a1.9 1.9 0 0 1 .6-3l3.2-1.5L5.1 5.1l4.3 13.3 1.5-3.2a1.9 1.9 0 0 1 3-.6l4.4 4.4.7-.7Z"/></svg>
               Re-select
             </button>
-            </div>
           </div>
         </div>
         <div class="ai-note-element-info">
@@ -917,7 +1124,7 @@ export default {
             rows="2"
           ></textarea>
           <div class="ai-note-actions">
-            <button class="ai-note-copy-btn" data-action="copy">
+            <button class="ai-note-copy-btn" type="button" data-action="copy">
               <svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>
               Copy
             </button>
@@ -982,14 +1189,14 @@ export default {
       panel.innerHTML = `
         <div class="ai-note-header">
           <h2>Inspect & Clip</h2>
-          <div style="display:flex;gap:6px;align-items:center;">
+          <div class="ai-note-header-actions">
             ${count > 0 ? `<span class="ai-note-counter">${count}</span>` : ''}
             <div class="ai-note-toggles">
-              <button class="ai-note-toggle-btn active" data-action="toggle-select">
+              <button class="ai-note-toggle-btn active" type="button" aria-pressed="true" data-action="toggle-select">
                 ${selectIcon}
                 Select
               </button>
-              <button class="ai-note-toggle-btn active" data-action="toggle-multi">
+              <button class="ai-note-toggle-btn active" type="button" aria-pressed="true" data-action="toggle-multi">
                 ${multiIcon}
                 Multi
               </button>
@@ -1010,12 +1217,12 @@ export default {
                   <code>&lt;${escapeHtml(entry.element.tagName.toLowerCase())}&gt;</code>
                   <span class="item-loc">${escapeHtml(entry.info.relativePath)}:${escapeHtml(entry.info.location)}</span>
                 </div>
-                <button class="remove-btn" data-remove="${i}" title="Remove">&times;</button>
+                <button class="remove-btn" type="button" data-remove="${i}" aria-label="Remove selected element">&times;</button>
               </div>
             `).join('')}
           </div>
           <div class="ai-note-actions">
-            <button class="ai-note-done-btn" data-action="done">
+            <button class="ai-note-done-btn" type="button" data-action="done">
               <svg width="14" height="14" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#fff" d="M9.47334.806574C9.41136.744088 9.33763.694492 9.25639.660646S9.08802.609375 9.00001.609375 8.82486.6268 8.74362.660646s-.15497.083442-.21695.145928L3.56001 5.77991 1.47334 3.68657c-.06435-.06216-.14031-.11103-.22354-.14383-.08324-.03281-.17212-.04889-.261578-.04735-.089454.00155-.177727.0207-.259779.05637-.082052.03566-.156277.08713-.218436.15148-.062159.06435-.111035.14031-.143837.22355-.032803.08323-.04889.17212-.047342.26157.001547.08945.020699.17773.056361.25978.035663.08205.087137.15627.151485.21843l2.559996 2.56c.06198.06249.13571.11209.21695.14593.08124.03385.16838.05127.25639.05127s.17514-.01742.25638-.05127c.08124-.03384.15498-.08344.21695-.14593l5.44-5.44c.06767-.06242.12168-.13819.15861-.22253.03694-.08433.05601-.1754.05601-.26747 0-.09206-.01907-.18313-.05601-.26747-.03693-.08433-.09094-.160098-.15861-.222526Z"/></svg>
               Done
             </button>
@@ -1076,14 +1283,14 @@ export default {
       panel.innerHTML = `
         <div class="ai-note-header">
           <h2>Inspect & Clip</h2>
-          <div style="display:flex;gap:6px;align-items:center;">
+          <div class="ai-note-header-actions">
             <div class="ai-note-toggles">
-              <button class="ai-note-toggle-btn" data-action="toggle-select">
+              <button class="ai-note-toggle-btn" type="button" aria-pressed="false" data-action="toggle-select">
                 ${selectIcon}
                 Select
               </button>
             </div>
-            <button class="ai-note-reinspect-btn" title="Select elements again">
+            <button class="ai-note-reinspect-btn" type="button" title="Select elements again">
             <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path fill="currentColor" d="M7.9 1.5v-.4a1.1 1.1 0 0 1 2.2 0v.4a1.1 1.1 0 1 1-2.2 0Zm-6.4 8.6a1.1 1.1 0 1 0 0-2.2h-.4a1.1 1.1 0 0 0 0 2.2h.4ZM12 3.7a1.1 1.1 0 0 0 1.4-.7l.4-1.1a1.1 1.1 0 0 0-2.1-.8l-.4 1.2a1.1 1.1 0 0 0 .7 1.4Zm-9.7 7.6-1.2.4a1.1 1.1 0 1 0 .8 2.1l1-.4a1.1 1.1 0 1 0-.6-2ZM20.8 17a1.9 1.9 0 0 1 0 2.6l-1.2 1.2a1.9 1.9 0 0 1-2.6 0l-4.3-4.2-1.6 3.6a1.9 1.9 0 0 1-1.7 1.2A1.9 1.9 0 0 1 7.5 20L2.7 5a1.9 1.9 0 0 1 2.4-2.4l15 5a1.9 1.9 0 0 1 .2 3.4l-3.7 1.6 4.2 4.3ZM19 18.3 14.6 14a1.9 1.9 0 0 1 .6-3l3.2-1.5L5.1 5.1l4.3 13.3 1.5-3.2a1.9 1.9 0 0 1 3-.6l4.4 4.4.7-.7Z"/></svg>
             Re-select
           </button>
@@ -1120,7 +1327,7 @@ export default {
             rows="2"
           ></textarea>
           <div class="ai-note-actions">
-            <button class="ai-note-copy-btn" data-action="copy">
+            <button class="ai-note-copy-btn" type="button" data-action="copy">
               <svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>
               Copy
             </button>
@@ -1163,6 +1370,15 @@ export default {
 
     function startInspecting() {
       if (!state.selectEnabled) return;
+      ensureSourceCache();
+
+      if (sourceCacheNeedsReload()) {
+        state.isInspecting = false;
+        document.body.classList.remove('ai-note-inspecting');
+        renderSourceCacheReload();
+        return;
+      }
+
       state.isInspecting = true;
       document.body.classList.add('ai-note-inspecting');
       renderPlaceholder();
@@ -1192,19 +1408,34 @@ export default {
      * Resolve an element to the nearest source location, while allowing the
      * file path to be inherited from an ancestor. Astro and the Audit toolbar
      * can leave those two pieces on different elements depending on timing.
+     * Shadow DOM hosts are treated as traversal parents, so custom elements can
+     * still resolve to the Astro component that rendered the host.
      */
     function resolveSourceElement(element: HTMLElement) {
       let resolved: HTMLElement | null = null;
       let filePath = '';
       let location = '';
       let current: HTMLElement | null = element;
+      let nearest: SourceCandidate | null = null;
+      let distance = 0;
 
       while (current) {
-        if (current.closest('astro-dev-toolbar')) break;
+        if (isDevToolbarElement(current)) break;
 
         const source = readSourceAnnotation(current);
+        if ((source.file || source.loc) && !nearest) {
+          nearest = {
+            element: current,
+            file: source.file,
+            loc: source.loc,
+            distance,
+          };
+        }
+
+        const isDocumentShell = distance > 0 && ['body', 'html'].includes(current.tagName.toLowerCase());
+
         if (!location) {
-          if (source.loc) {
+          if (source.loc && !isDocumentShell) {
             location = source.loc;
             resolved = current;
             filePath = source.file;
@@ -1217,23 +1448,79 @@ export default {
           break;
         }
 
-        current = current.parentElement;
+        current = getTraversalParent(current);
+        distance++;
       }
 
       if (!resolved || !filePath || !location) {
-        return { element, info: null };
+        return { element, info: null, diagnostic: getNoSourceDiagnostic(element, nearest) };
       }
 
-      return { element: resolved, info: getElementInfo(resolved, filePath, location) };
+      return { element: resolved, info: getElementInfo(resolved, filePath, location), diagnostic: null };
+    }
+
+    function getNoSourceDiagnostic(element: HTMLElement, nearest: SourceCandidate | null): NoSourceDiagnostic {
+      const root = element.getRootNode();
+      const tagName = element.tagName.toLowerCase();
+
+      let title = 'Runtime DOM element';
+      let message = 'This element was likely created or rewritten by client-side JavaScript, so Astro did not attach source metadata to it.';
+
+      if ((window as any).__ai_note_source_cache_late__ && !nearest) {
+        title = 'Source cache was not initialized early enough';
+        message = 'Astro source attributes were already removed before this app could cache them. Restart the Astro dev server after installing or updating the plugin so the page-level cache script is injected from startup.';
+      } else if (root instanceof ShadowRoot) {
+        title = 'Shadow DOM boundary';
+        message = 'The selected element is inside a shadow root. The inspector tried the shadow host, but no complete Astro source metadata was found.';
+      } else if (tagName === 'iframe') {
+        title = 'Iframe boundary';
+        message = 'The selected element is an iframe. Inspecting content inside frames requires selecting an element in that frame context.';
+      } else if (nearest && (!nearest.file || !nearest.loc)) {
+        title = 'Partial Astro metadata';
+        message = 'Astro exposed only part of the source metadata nearby. A file and a line/column are both required to open or diff a source location.';
+      }
+
+      return {
+        title,
+        message,
+        domPath: buildDomPath(element),
+        nearest,
+      };
+    }
+
+    function buildNoSourceCopyText(element: HTMLElement, diagnostic: NoSourceDiagnostic): string {
+      const lines = [
+        'No Astro source location found.',
+        `Reason: ${diagnostic.title}`,
+        `Detail: ${diagnostic.message}`,
+        `Element: <${element.tagName.toLowerCase()}>`,
+      ];
+
+      const classes = cleanClasses(typeof element.className === 'string' ? element.className : '');
+      if (classes) lines.push(`Classes: ${classes}`);
+      if (diagnostic.domPath) lines.push(`DOM path: ${diagnostic.domPath}`);
+
+      if (diagnostic.nearest) {
+        const file = diagnostic.nearest.file ? toRelativePath(diagnostic.nearest.file) : '(missing file)';
+        const loc = diagnostic.nearest.loc || '(missing loc)';
+        lines.push(`Nearest metadata: ${file}:${loc}`);
+        lines.push(`Nearest element: <${diagnostic.nearest.element.tagName.toLowerCase()}>`);
+      }
+
+      const rawHtml = cleanHtml(element.outerHTML);
+      const htmlSnippet = rawHtml.length > 240 ? rawHtml.slice(0, 237) + '...' : rawHtml;
+      lines.push(`HTML: ${htmlSnippet}`);
+
+      return lines.join('\n');
     }
 
     function selectElement(element: HTMLElement) {
       clearHover();
 
-      const { element: resolved, info } = resolveSourceElement(element);
+      const { element: resolved, info, diagnostic } = resolveSourceElement(element);
 
       if (!info) {
-        renderNoSourceInfo(element);
+        renderNoSourceInfo(element, diagnostic);
         return;
       }
 
@@ -1254,22 +1541,28 @@ export default {
       }
     }
 
-    function renderNoSourceInfo(element: HTMLElement) {
+    function renderNoSourceInfo(element: HTMLElement, diagnostic: NoSourceDiagnostic | null) {
       panel.innerHTML = '';
       panel.dataset.visible = 'false';
 
+      const sourceDiagnostic = diagnostic ?? getNoSourceDiagnostic(element, null);
       const tagName = element.tagName.toLowerCase();
+      const classes = cleanClasses(typeof element.className === 'string' ? element.className : '');
+      const nearest = sourceDiagnostic.nearest;
+      const nearestFile = nearest?.file ? toRelativePath(nearest.file) : '';
+      const nearestLoc = nearest?.loc ?? '';
+
       panel.innerHTML = `
         <div class="ai-note-header">
           <h2>Inspect & Clip</h2>
-          <div style="display:flex;gap:6px;align-items:center;">
+          <div class="ai-note-header-actions">
             <div class="ai-note-toggles">
-              <button class="ai-note-toggle-btn active" data-action="toggle-select">
+              <button class="ai-note-toggle-btn active" type="button" aria-pressed="true" data-action="toggle-select">
                 ${selectIcon}
                 Select
               </button>
             </div>
-            <button class="ai-note-reinspect-btn" title="Select another element">
+            <button class="ai-note-reinspect-btn" type="button" title="Select another element">
             <svg width="16" height="16" viewBox="0 0 32 32" fill="none"><path fill="currentColor" d="M7.9 1.5v-.4a1.1 1.1 0 0 1 2.2 0v.4a1.1 1.1 0 1 1-2.2 0Zm-6.4 8.6a1.1 1.1 0 1 0 0-2.2h-.4a1.1 1.1 0 0 0 0 2.2h.4ZM12 3.7a1.1 1.1 0 0 0 1.4-.7l.4-1.1a1.1 1.1 0 0 0-2.1-.8l-.4 1.2a1.1 1.1 0 0 0 .7 1.4Zm-9.7 7.6-1.2.4a1.1 1.1 0 1 0 .8 2.1l1-.4a1.1 1.1 0 1 0-.6-2ZM20.8 17a1.9 1.9 0 0 1 0 2.6l-1.2 1.2a1.9 1.9 0 0 1-2.6 0l-4.3-4.2-1.6 3.6a1.9 1.9 0 0 1-1.7 1.2A1.9 1.9 0 0 1 7.5 20L2.7 5a1.9 1.9 0 0 1 2.4-2.4l15 5a1.9 1.9 0 0 1 .2 3.4l-3.7 1.6 4.2 4.3ZM19 18.3 14.6 14a1.9 1.9 0 0 1 .6-3l3.2-1.5L5.1 5.1l4.3 13.3 1.5-3.2a1.9 1.9 0 0 1 3-.6l4.4 4.4.7-.7Z"/></svg>
             Re-select
           </button>
@@ -1281,11 +1574,39 @@ export default {
               <div class="label">Element</div>
               <div class="ai-note-element-line">
                 <code>&lt;${escapeHtml(tagName)}&gt;</code>
-                <span class="ai-note-classes">No source info found for this element or its parents.</span>
+                ${classes ? `<span class="ai-note-classes">${escapeHtml(classes)}</span>` : ''}
               </div>
             </div>
-            <p class="ai-note-help">Try clicking a component wrapper or a larger structural element instead.</p>
+            <div class="row">
+              <div class="label">Reason</div>
+              <p class="ai-note-diagnostic-title">${escapeHtml(sourceDiagnostic.title)}</p>
+              <p class="ai-note-help">${escapeHtml(sourceDiagnostic.message)}</p>
+            </div>
+            ${sourceDiagnostic.domPath ? `
+              <div class="row">
+                <div class="label">DOM path</div>
+                <div class="ai-note-element-line">
+                  <code>${escapeHtml(sourceDiagnostic.domPath)}</code>
+                </div>
+              </div>
+            ` : ''}
+            ${nearest ? `
+              <div class="row">
+                <div class="label">Nearest metadata</div>
+                <div class="ai-note-element-line">
+                  <code>${escapeHtml(nearestFile || '(missing file)')}:${escapeHtml(nearestLoc || '(missing loc)')}</code>
+                  <span class="ai-note-classes">&lt;${escapeHtml(nearest.element.tagName.toLowerCase())}&gt;</span>
+                </div>
+              </div>
+            ` : ''}
+            <p class="ai-note-help">Try selecting a larger Astro-rendered wrapper, or copy this fallback context if the element is generated at runtime.</p>
           </div>
+        </div>
+        <div class="ai-note-actions">
+          <button class="ai-note-copy-btn" type="button" data-action="copy-fallback">
+            <svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>
+            Copy context
+          </button>
         </div>
       `;
 
@@ -1301,6 +1622,11 @@ export default {
         startInspecting();
       });
 
+      const copyFallbackBtn = panel.querySelector('[data-action="copy-fallback"]') as HTMLButtonElement;
+      copyFallbackBtn.addEventListener('click', () => {
+        handleCopy(copyFallbackBtn, buildNoSourceCopyText(element, sourceDiagnostic));
+      });
+
       panel.dataset.visible = 'true';
     }
 
@@ -1309,7 +1635,7 @@ export default {
     function onMouseMove(e: MouseEvent) {
       if (!state.isInspecting) return;
       const target = e.target as HTMLElement;
-      if (!target || target.closest('astro-dev-toolbar')) return;
+      if (!target || isDevToolbarElement(target)) return;
 
       if (target === state.hoverOutlineElement) return;
       clearHover();
@@ -1320,7 +1646,7 @@ export default {
     function onClick(e: MouseEvent) {
       if (!state.isInspecting) return;
       const target = e.target as HTMLElement;
-      if (!target || target.closest('astro-dev-toolbar')) return;
+      if (!target || isDevToolbarElement(target)) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -1362,6 +1688,7 @@ export default {
       if (event.detail.state === true) {
         // App activated — reset state and start inspecting if enabled
         state.selectEnabled = true;
+        ensureSourceCache();
         startInspecting();
       } else {
         // App deactivated — clean up

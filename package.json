@@ -1,6 +1,6 @@
 {
   "name": "astro-inspect-clip",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Astro dev-toolbar app to inspect elements and copy source info + instructions to clipboard",
   "type": "module",
   "main": "./dist/index.js",
