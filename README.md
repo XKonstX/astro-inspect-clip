@@ -39,10 +39,21 @@ then opened DevTools, searched the DOM tree, and still couldn't find the source 
 
 ---
 
-## Version 1.0.3
+## Versions
 
-This patch makes inspect clicks more reliable when Astro's dev toolbar and the
-built-in Audit app touch source annotations at slightly different times.
+### 1.0.5
+
+- Stops showing the global **Reload required** screen when the toolbar app starts
+- Keeps inspection available and reports missing source metadata only for the
+  selected element that actually needs fallback context
+- Softens the late-cache diagnostic so a page reload is suggested only when it is useful
+
+### 1.0.4
+
+- Refines source metadata caching for pages loaded before toolbar hot reloads
+- Adds clearer fallback diagnostics when source metadata cannot be resolved
+
+### 1.0.3
 
 - Caches both `data-astro-source-file` and `data-astro-source-loc`, even when
   only one attribute is present on an element

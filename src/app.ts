@@ -41,13 +41,6 @@ function ensureSourceCache() {
   }
 }
 
-function sourceCacheNeedsReload(): boolean {
-  if (!(window as any).__ai_note_source_cache_late__) return false;
-
-  const cache = (window as any).__ai_note_source_cache__ as Map<HTMLElement, { file: string; loc: string }> | undefined;
-  return !cache || cache.size === 0;
-}
-
 function toRelativePath(filePath: string): string {
   const root = (window as any).__astro_dev_toolbar__?.root as string | undefined;
   return root && filePath.startsWith(root) ? filePath.slice(root.length) : filePath;
@@ -919,42 +912,6 @@ export default {
       panel.dataset.visible = 'true';
     }
 
-    function renderSourceCacheReload() {
-      panel.innerHTML = '';
-      panel.dataset.visible = 'false';
-
-      panel.innerHTML = `
-        <div class="ai-note-header">
-          <h2>Inspect & Clip</h2>
-        </div>
-        <div class="ai-note-element-info">
-          <div class="ai-note-empty-state">
-            <div class="row">
-              <div class="label">Source cache</div>
-              <p class="ai-note-diagnostic-title">Reload required</p>
-              <p class="ai-note-help">This page was loaded before Inspect & Clip could cache Astro source metadata. Reload the page once so source locations can be captured before Astro's dev tools remove them.</p>
-            </div>
-            <div class="row">
-              <div class="label">Why</div>
-              <p class="ai-note-help">Updating the plugin hot-reloads the toolbar app, but Astro's page-level cache script is only injected for newly loaded pages.</p>
-            </div>
-          </div>
-        </div>
-        <div class="ai-note-actions">
-          <button class="ai-note-copy-btn" type="button" data-action="reload-page">
-            Reload page
-          </button>
-        </div>
-      `;
-
-      const reloadBtn = panel.querySelector('[data-action="reload-page"]') as HTMLButtonElement;
-      reloadBtn.addEventListener('click', () => {
-        window.location.reload();
-      });
-
-      panel.dataset.visible = 'true';
-    }
-
     function buildCopyText(entries: SelectedEntry[], note: string): string {
       const lines: string[] = [];
 
@@ -1372,13 +1329,6 @@ export default {
       if (!state.selectEnabled) return;
       ensureSourceCache();
 
-      if (sourceCacheNeedsReload()) {
-        state.isInspecting = false;
-        document.body.classList.remove('ai-note-inspecting');
-        renderSourceCacheReload();
-        return;
-      }
-
       state.isInspecting = true;
       document.body.classList.add('ai-note-inspecting');
       renderPlaceholder();
@@ -1467,8 +1417,8 @@ export default {
       let message = 'This element was likely created or rewritten by client-side JavaScript, so Astro did not attach source metadata to it.';
 
       if ((window as any).__ai_note_source_cache_late__ && !nearest) {
-        title = 'Source cache was not initialized early enough';
-        message = 'Astro source attributes were already removed before this app could cache them. Restart the Astro dev server after installing or updating the plugin so the page-level cache script is injected from startup.';
+        title = 'No cached Astro source metadata';
+        message = 'Inspect & Clip could not find source metadata for this element. If this should be Astro-rendered markup, reload the page once so the page-level cache can capture metadata earlier.';
       } else if (root instanceof ShadowRoot) {
         title = 'Shadow DOM boundary';
         message = 'The selected element is inside a shadow root. The inspector tried the shadow host, but no complete Astro source metadata was found.';
