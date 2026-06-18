@@ -70,6 +70,7 @@ function isCommentedContextEntry(value: unknown): value is CommentedContextEntry
   if (!value || typeof value !== 'object') return false;
   const entry = value as Record<string, unknown>;
   return typeof entry.id === 'string'
+    && (entry.instanceKey === undefined || typeof entry.instanceKey === 'string')
     && typeof entry.filePath === 'string'
     && typeof entry.relativePath === 'string'
     && typeof entry.location === 'string'

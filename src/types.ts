@@ -40,6 +40,7 @@ export interface SelectedEntry {
 
 export interface CommentedContextEntry {
   id: string;
+  instanceKey?: string;
   filePath: string;
   relativePath: string;
   location: string;

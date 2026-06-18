@@ -74,3 +74,41 @@ export function buildDomPath(element: HTMLElement): string {
 
   return parts.reverse().join(' > ');
 }
+
+export function getElementFingerprint(element: HTMLElement): string {
+  const parts: string[] = [];
+  let current: HTMLElement | null = element;
+
+  while (current && parts.length < 8) {
+    if (isDevToolbarElement(current)) break;
+
+    const tagName = current.tagName.toLowerCase();
+    const id = current.id ? `#${current.id}` : '';
+    const demoTarget = current.dataset.demoTarget ? `[data-demo-target="${current.dataset.demoTarget}"]` : '';
+    const classes = cleanClasses(typeof current.className === 'string' ? current.className : '')
+      .split(', ')
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((className) => `.${className}`)
+      .join('');
+    const siblingIndex = getElementSiblingIndex(current);
+
+    parts.push(`${tagName}${id}${demoTarget}${classes}:nth-of-type(${siblingIndex})`);
+    if (tagName === 'body') break;
+    current = getTraversalParent(current);
+  }
+
+  return parts.reverse().join(' > ');
+}
+
+function getElementSiblingIndex(element: HTMLElement): number {
+  let index = 1;
+  let sibling = element.previousElementSibling;
+
+  while (sibling) {
+    if (sibling.tagName === element.tagName) index++;
+    sibling = sibling.previousElementSibling;
+  }
+
+  return index;
+}

@@ -2,7 +2,7 @@
 import type { AppState, CommentedContextEntry, NoSourceDiagnostic, SelectedEntry, SourceCandidate } from './types.js';
 import { handleCopy } from './clipboard.js';
 import { buildCompleteContextText, buildCopyText, buildNoSourceCopyText } from './copy-text.js';
-import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
+import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
 import { bindInstructionDraft, readCommentContexts, readInstructionDraft, writeCommentContexts } from './storage.js';
 import { ensureSourceCache, getElementInfo, readSourceAnnotation, toRelativePath } from './source-cache.js';
 import { injectGlobalStyles, injectPanelStyles } from './styles.js';
@@ -176,6 +176,7 @@ export default {
         entry.info.filePath,
         entry.info.location,
         entry.element.tagName.toLowerCase(),
+        getElementFingerprint(entry.element),
       ].join('::');
     }
 
@@ -183,6 +184,7 @@ export default {
       const rawHtml = cleanHtml(entry.element.outerHTML);
       return {
         id: getCommentId(entry),
+        instanceKey: getElementFingerprint(entry.element),
         filePath: entry.info.filePath,
         relativePath: entry.info.relativePath,
         location: entry.info.location,
@@ -209,11 +211,16 @@ export default {
         if (existingIndex >= 0) {
           state.commentedContexts[existingIndex] = nextContext;
         } else {
+          state.commentedContexts = state.commentedContexts.filter(
+            (context) => context.instanceKey || !isSameCommentSource(context, entry),
+          );
           state.commentedContexts.push(nextContext);
         }
         entry.element.classList.add('ai-note-commented');
       } else {
-        state.commentedContexts = state.commentedContexts.filter((context) => context.id !== id);
+        state.commentedContexts = state.commentedContexts.filter(
+          (context) => context.id !== id && (context.instanceKey || !isSameCommentSource(context, entry)),
+        );
         entry.element.classList.remove('ai-note-commented');
       }
 
@@ -222,6 +229,12 @@ export default {
       if (trimmedInstruction) entry.element.classList.add('ai-note-commented');
       updateContextControls();
       renderReviewBar();
+    }
+
+    function isSameCommentSource(context: CommentedContextEntry, entry: SelectedEntry): boolean {
+      return context.filePath === entry.info.filePath
+        && context.location === entry.info.location
+        && context.tagName === entry.element.tagName.toLowerCase();
     }
 
     function clearCommentContexts() {
@@ -263,7 +276,9 @@ export default {
           }
         });
 
-      return matches;
+      if (!context.instanceKey) return matches;
+
+      return matches.filter((element) => getElementFingerprint(element) === context.instanceKey);
     }
 
     function markCommentedElements() {
@@ -1160,9 +1175,9 @@ export default {
     }
 
     function clearSelection() {
-      for (const entry of state.selectedElements) {
-        entry.element.classList.remove('ai-note-selected');
-      }
+      document
+        .querySelectorAll('.ai-note-selected')
+        .forEach((element) => element.classList.remove('ai-note-selected'));
       state.selectedElements = [];
     }
 
@@ -1261,7 +1276,6 @@ export default {
       }
 
       const isInherited = resolved !== element;
-      element.classList.add('ai-note-selected');
       const entry = { element, info, isInherited };
 
       if (isReviewMode) {
@@ -1274,7 +1288,13 @@ export default {
       }
 
       if (state.isMultiSelect) {
+        if (state.selectedElements.some((selected) => selected.element === element)) {
+          renderMultiSelectInspecting();
+          return;
+        }
+
         // Multi-select: add to array, keep inspecting
+        element.classList.add('ai-note-selected');
         state.selectedElements.push(entry);
         renderMultiSelectInspecting();
       } else {
