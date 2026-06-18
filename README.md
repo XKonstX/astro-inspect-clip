@@ -94,6 +94,19 @@ npm run dev
 Open the browser, click the **Inspect & Clip** icon in Astro's dev toolbar,
 and start clicking elements.
 
+## Demo
+
+This repo includes a small Astro demo site for local plugin testing:
+
+```bash
+npm run demo
+```
+
+The script builds the toolbar app, starts the demo Astro dev server, and loads
+the local integration from `dist`. Open the printed localhost URL, activate
+**Inspect & Clip** in Astro's dev toolbar, then click the page sections,
+scenario cards, checklist rows, and runtime badge.
+
 ---
 
 ## How it works

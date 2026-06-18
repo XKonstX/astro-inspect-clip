@@ -1,0 +1,782 @@
+---
+import DemoHeader from '../components/DemoHeader.astro';
+import InspectScenario from '../components/InspectScenario.astro';
+
+const scenarios = [
+  {
+    eyebrow: 'Single select',
+    title: 'Component boundary',
+    body: 'This card lives in its own Astro component, so copied context should point away from the page file.',
+    tone: 'violet',
+  },
+  {
+    eyebrow: 'Multi select',
+    title: 'Grouped capture',
+    body: 'Select this card, a checklist row, and a button to verify grouped clipboard output across files.',
+    tone: 'green',
+  },
+  {
+    eyebrow: 'Fallback',
+    title: 'Runtime DOM',
+    body: 'The generated badge below is created by client-side JavaScript and should exercise no-source diagnostics.',
+    tone: 'amber',
+  },
+] as const;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Inspect Clip Demo</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <DemoHeader />
+
+      <section class="hero" id="overview" data-demo-target="hero">
+        <div class="hero__copy">
+          <p class="eyebrow">Demo mode</p>
+          <h1>Point, click, copy source context.</h1>
+          <p>
+            A focused test page for Inspect & Clip with real Astro source annotations,
+            component boundaries, nested targets, repeated rows, and one runtime-only
+            element.
+          </p>
+        </div>
+
+        <aside class="inspect-preview" aria-label="Copied context preview">
+          <div class="inspect-preview__bar">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <code>File: demo/src/components/InspectScenario.astro:18</code>
+          <code>Element: &lt;button&gt;</code>
+          <code>Classes: scenario--green</code>
+          <p>Ready to paste into your editor or assistant.</p>
+        </aside>
+      </section>
+
+      <section class="status-strip" aria-label="Demo expectations">
+        <div>
+          <span class="status-dot status-dot--ready" aria-hidden="true"></span>
+          <strong>Static Astro</strong>
+          <p>File and line should resolve.</p>
+        </div>
+        <div>
+          <span class="status-dot status-dot--nested" aria-hidden="true"></span>
+          <strong>Nested targets</strong>
+          <p>Child clicks should inherit context.</p>
+        </div>
+        <div>
+          <span class="status-dot status-dot--runtime" aria-hidden="true"></span>
+          <strong>Runtime fallback</strong>
+          <p>Generated markup should show diagnostics.</p>
+        </div>
+      </section>
+
+      <section class="scenario-grid" id="scenarios" aria-label="Inspect scenarios">
+        {
+          scenarios.map((scenario) => (
+            <InspectScenario
+              eyebrow={scenario.eyebrow}
+              title={scenario.title}
+              body={scenario.body}
+              tone={scenario.tone}
+            />
+          ))
+        }
+      </section>
+
+      <section class="workbench" id="checklist" data-demo-target="workbench">
+        <div class="workbench__header">
+          <p class="eyebrow">Checklist</p>
+          <h2>Click targets</h2>
+          <p>Use these rows to confirm source resolution, multi-select, and fallback output.</p>
+        </div>
+
+        <div class="target-list">
+          <button class="target-row" type="button">
+            <span>01</span>
+            <strong>Header logo and nav item</strong>
+            <small>Checks nested component markup.</small>
+          </button>
+          <button class="target-row" type="button">
+            <span>02</span>
+            <strong>Scenario card button</strong>
+            <small>Checks child element resolution.</small>
+          </button>
+          <button class="target-row" type="button">
+            <span>03</span>
+            <strong>Generated badge</strong>
+            <small>Checks missing source metadata diagnostics.</small>
+          </button>
+        </div>
+
+        <div class="runtime-zone" data-demo-target="runtime-zone">
+          <div class="runtime-zone__header">
+            <span aria-hidden="true"></span>
+            <h3>Runtime DOM zone</h3>
+          </div>
+          <p>
+            The badge is inserted after page load. It should not have Astro source
+            annotations, which makes it useful for fallback testing.
+          </p>
+          <div id="runtime-target" class="runtime-target" aria-live="polite"></div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const target = document.querySelector('#runtime-target');
+      const badge = document.createElement('button');
+      badge.type = 'button';
+      badge.className = 'runtime-badge';
+      badge.textContent = 'Runtime badge';
+      badge.dataset.createdBy = 'client-script';
+      target?.append(badge);
+    </script>
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: light;
+    --page: oklch(96% 0.012 262);
+    --paper: oklch(99% 0.006 262);
+    --paper-warm: oklch(97% 0.014 80);
+    --ink: oklch(20% 0.035 264);
+    --muted: oklch(49% 0.032 264);
+    --quiet: oklch(63% 0.028 264);
+    --line: oklch(86% 0.022 264);
+    --line-strong: oklch(76% 0.036 264);
+    --violet: oklch(52% 0.19 291);
+    --green: oklch(57% 0.14 155);
+    --amber: oklch(67% 0.15 72);
+    --coral: oklch(62% 0.16 34);
+    --blue: oklch(58% 0.13 235);
+    --shadow-soft: 0 22px 60px oklch(28% 0.055 264 / 0.14);
+    --shadow-tight: 0 10px 30px oklch(28% 0.055 264 / 0.1);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background:
+      linear-gradient(90deg, oklch(88% 0.018 264 / 0.45) 1px, transparent 1px),
+      linear-gradient(0deg, oklch(88% 0.018 264 / 0.45) 1px, transparent 1px),
+      radial-gradient(circle at 13% 8%, oklch(88% 0.05 291 / 0.42), transparent 26%),
+      linear-gradient(145deg, var(--page), oklch(96% 0.018 83));
+    background-size: 44px 44px, 44px 44px, auto, auto;
+    color: var(--ink);
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  button,
+  a {
+    font: inherit;
+  }
+
+  button {
+    color: inherit;
+  }
+
+  .page-shell {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 18px 0 72px;
+  }
+
+  .demo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 10px 0 24px;
+  }
+
+  .demo-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .demo-mark__icon {
+    position: relative;
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--ink);
+    box-shadow: inset 0 0 0 1px oklch(100% 0 0 / 0.08), var(--shadow-tight);
+  }
+
+  .demo-mark__icon span {
+    position: absolute;
+    width: 19px;
+    height: 15px;
+    border: 2px solid oklch(94% 0.02 291);
+    border-radius: 4px;
+  }
+
+  .demo-mark__icon span:first-child {
+    transform: translate(-4px, -3px);
+  }
+
+  .demo-mark__icon span:last-child {
+    border-color: oklch(79% 0.14 155);
+    transform: translate(4px, 4px);
+  }
+
+  .demo-mark strong,
+  .demo-mark small {
+    display: block;
+  }
+
+  .demo-mark strong {
+    font-size: 15px;
+    letter-spacing: 0;
+  }
+
+  .demo-mark small {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .demo-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .demo-nav a {
+    color: var(--muted);
+    padding: 9px 12px;
+    border-radius: 7px;
+    text-decoration: none;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+
+  .demo-nav a:hover {
+    background: oklch(99% 0.006 262 / 0.78);
+    color: var(--ink);
+    transform: translateY(-1px);
+  }
+
+  .hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 410px);
+    gap: 34px;
+    align-items: stretch;
+    padding: 58px 0 34px;
+  }
+
+  .hero__copy {
+    display: flex;
+    min-height: 390px;
+    flex-direction: column;
+    justify-content: flex-end;
+    max-width: 780px;
+    padding: 34px 0 10px;
+  }
+
+  .eyebrow {
+    margin: 0 0 10px;
+    color: var(--violet);
+    font-size: 12px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  h1,
+  h2,
+  h3,
+  p {
+    margin-top: 0;
+  }
+
+  h1 {
+    max-width: 760px;
+    margin-bottom: 20px;
+    font-size: clamp(52px, 8vw, 94px);
+    line-height: 0.92;
+    letter-spacing: 0;
+  }
+
+  h2 {
+    margin-bottom: 12px;
+    font-size: 38px;
+    line-height: 1.05;
+    letter-spacing: 0;
+  }
+
+  h3 {
+    margin-bottom: 12px;
+    font-size: 22px;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .hero p:not(.eyebrow),
+  .scenario p,
+  .runtime-zone p,
+  .status-strip p,
+  .workbench__header p {
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .hero p:not(.eyebrow) {
+    max-width: 62ch;
+    margin-bottom: 0;
+    font-size: 18px;
+  }
+
+  .inspect-preview {
+    position: relative;
+    display: flex;
+    min-height: 390px;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 12px;
+    overflow: hidden;
+    padding: 22px;
+    border: 1px solid oklch(100% 0 0 / 0.42);
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, oklch(25% 0.052 264), oklch(17% 0.032 264)),
+      var(--ink);
+    box-shadow: var(--shadow-soft);
+    color: oklch(93% 0.014 264);
+    isolation: isolate;
+  }
+
+  .inspect-preview::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background:
+      linear-gradient(90deg, oklch(100% 0 0 / 0.06) 1px, transparent 1px),
+      linear-gradient(0deg, oklch(100% 0 0 / 0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: linear-gradient(to bottom, transparent, black 26%, black);
+  }
+
+  .inspect-preview::after {
+    content: "";
+    position: absolute;
+    right: -18px;
+    bottom: -22px;
+    width: 210px;
+    height: 210px;
+    border: 1px solid oklch(78% 0.14 155 / 0.42);
+    border-radius: 50%;
+  }
+
+  .inspect-preview__bar {
+    position: absolute;
+    top: 18px;
+    left: 18px;
+    display: flex;
+    gap: 7px;
+  }
+
+  .inspect-preview__bar span {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+
+  .inspect-preview__bar span:nth-child(1) {
+    background: var(--coral);
+  }
+
+  .inspect-preview__bar span:nth-child(2) {
+    background: var(--amber);
+  }
+
+  .inspect-preview__bar span:nth-child(3) {
+    background: var(--green);
+  }
+
+  .inspect-preview code {
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    padding: 8px 10px;
+    border: 1px solid oklch(100% 0 0 / 0.1);
+    border-radius: 6px;
+    background: oklch(100% 0 0 / 0.06);
+    color: oklch(91% 0.04 291);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .inspect-preview p {
+    max-width: 28ch;
+    margin: 4px 0 0;
+    color: oklch(78% 0.022 264);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .status-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid oklch(100% 0 0 / 0.62);
+    border-radius: 8px;
+    background: oklch(99% 0.006 262 / 0.72);
+    box-shadow: var(--shadow-tight);
+    backdrop-filter: blur(12px);
+  }
+
+  .status-strip div {
+    display: grid;
+    grid-template-columns: 14px 1fr;
+    column-gap: 10px;
+    padding: 12px;
+    border-radius: 7px;
+    background: oklch(100% 0 0 / 0.48);
+  }
+
+  .status-strip strong {
+    font-size: 13px;
+  }
+
+  .status-strip p {
+    grid-column: 2;
+    margin: 2px 0 0;
+    font-size: 12px;
+  }
+
+  .status-dot {
+    width: 10px;
+    height: 10px;
+    margin-top: 5px;
+    border-radius: 50%;
+  }
+
+  .status-dot--ready {
+    background: var(--green);
+  }
+
+  .status-dot--nested {
+    background: var(--blue);
+  }
+
+  .status-dot--runtime {
+    background: var(--amber);
+  }
+
+  .scenario-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    padding: 18px 0 24px;
+  }
+
+  .scenario {
+    position: relative;
+    display: flex;
+    min-height: 300px;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow: hidden;
+    padding: 20px;
+    border: 1px solid oklch(100% 0 0 / 0.64);
+    border-radius: 8px;
+    background: var(--paper);
+    box-shadow: var(--shadow-tight);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .scenario:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .scenario::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      linear-gradient(120deg, var(--scenario-tint), transparent 48%),
+      linear-gradient(180deg, transparent, oklch(92% 0.018 264 / 0.54));
+    opacity: 0.68;
+  }
+
+  .scenario > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .scenario--violet {
+    --scenario-accent: var(--violet);
+    --scenario-tint: oklch(90% 0.05 291);
+  }
+
+  .scenario--green {
+    --scenario-accent: var(--green);
+    --scenario-tint: oklch(90% 0.05 155);
+  }
+
+  .scenario--amber {
+    --scenario-accent: var(--amber);
+    --scenario-tint: oklch(92% 0.06 72);
+  }
+
+  .scenario__meta {
+    margin-bottom: 24px;
+  }
+
+  .scenario__meta span {
+    display: inline-flex;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: oklch(100% 0 0 / 0.62);
+    color: oklch(38% 0.055 264);
+    font-size: 12px;
+    font-weight: 750;
+    box-shadow: inset 0 0 0 1px oklch(80% 0.04 264 / 0.36);
+  }
+
+  .scenario__signal {
+    width: 50px;
+    height: 50px;
+    margin-bottom: 22px;
+    border: 1px solid oklch(100% 0 0 / 0.68);
+    border-radius: 8px;
+    background:
+      linear-gradient(90deg, transparent 45%, var(--scenario-accent) 45% 55%, transparent 55%),
+      linear-gradient(0deg, transparent 45%, var(--scenario-accent) 45% 55%, transparent 55%),
+      oklch(100% 0 0 / 0.64);
+    box-shadow: 0 12px 28px oklch(30% 0.04 264 / 0.12);
+  }
+
+  .scenario h3 {
+    max-width: 11ch;
+  }
+
+  .scenario p {
+    margin-bottom: 22px;
+    font-size: 14px;
+  }
+
+  .scenario button,
+  .target-row,
+  .runtime-badge {
+    border: 1px solid oklch(18% 0.03 264);
+    border-radius: 7px;
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .scenario button {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    justify-content: space-between;
+    margin-top: auto;
+    padding: 10px 11px 10px 13px;
+    font-size: 13px;
+    font-weight: 750;
+    min-width: 150px;
+  }
+
+  .scenario button span:last-child {
+    display: inline-grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    border-radius: 50%;
+    background: oklch(100% 0 0 / 0.12);
+    color: oklch(92% 0.025 264);
+  }
+
+  .scenario button:hover,
+  .target-row:hover,
+  .runtime-badge:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px oklch(26% 0.044 264 / 0.16);
+  }
+
+  .workbench {
+    display: grid;
+    grid-template-columns: 330px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+    padding-top: 4px;
+  }
+
+  .workbench__header {
+    position: sticky;
+    top: 20px;
+    padding: 20px 0;
+  }
+
+  .workbench__header p:not(.eyebrow) {
+    max-width: 29ch;
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .target-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .target-row {
+    display: grid;
+    grid-template-columns: 42px 1fr;
+    gap: 4px 13px;
+    width: 100%;
+    padding: 17px;
+    border-color: oklch(100% 0 0 / 0.7);
+    background: oklch(23% 0.036 264);
+    text-align: left;
+  }
+
+  .target-row span {
+    grid-row: span 2;
+    color: oklch(80% 0.052 291);
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .target-row strong {
+    color: oklch(96% 0.012 264);
+  }
+
+  .target-row small {
+    color: oklch(75% 0.024 264);
+  }
+
+  .runtime-zone {
+    grid-column: 2;
+    margin-top: 10px;
+    padding: 22px;
+    border: 1px dashed oklch(70% 0.08 72);
+    border-radius: 8px;
+    background:
+      linear-gradient(135deg, oklch(98% 0.03 72), oklch(99% 0.012 262));
+    box-shadow: var(--shadow-tight);
+  }
+
+  .runtime-zone__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .runtime-zone__header span {
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--amber);
+    border-radius: 50%;
+    box-shadow: 0 0 0 5px oklch(86% 0.08 72 / 0.28);
+  }
+
+  .runtime-zone__header h3 {
+    margin-bottom: 0;
+  }
+
+  .runtime-zone p {
+    max-width: 65ch;
+    margin: 12px 0 18px;
+  }
+
+  .runtime-target {
+    min-height: 44px;
+  }
+
+  .runtime-badge {
+    padding: 10px 14px;
+    border-color: oklch(39% 0.08 72);
+    background: var(--amber);
+    color: oklch(22% 0.04 72);
+    font-weight: 750;
+  }
+
+  @media (max-width: 860px) {
+    .demo-header,
+    .hero,
+    .workbench {
+      grid-template-columns: 1fr;
+    }
+
+    .demo-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .demo-nav {
+      justify-content: flex-start;
+    }
+
+    .scenario-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .status-strip {
+      grid-template-columns: 1fr;
+    }
+
+    .workbench__header {
+      position: static;
+    }
+
+    .runtime-zone {
+      grid-column: auto;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .page-shell {
+      width: min(100% - 20px, 1160px);
+      padding-top: 12px;
+    }
+
+    .hero {
+      padding: 34px 0 30px;
+    }
+
+    .hero__copy,
+    .inspect-preview {
+      min-height: auto;
+    }
+
+    h1 {
+      font-size: 46px;
+    }
+
+    .status-strip,
+    .scenario,
+    .runtime-zone {
+      padding: 16px;
+    }
+  }
+</style>

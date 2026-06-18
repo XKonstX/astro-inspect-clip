@@ -1,0 +1,152 @@
+---
+interface Props {
+  eyebrow: string;
+  title: string;
+  body: string;
+  tone: 'violet' | 'green' | 'amber';
+}
+
+const { eyebrow, title, body, tone } = Astro.props;
+---
+
+<article class={`scenario scenario--${tone}`} data-demo-target={`scenario-${tone}`}>
+  <div class="scenario__meta">
+    <span>{eyebrow}</span>
+  </div>
+  <div class="scenario__signal" aria-hidden="true"></div>
+  <h3>{title}</h3>
+  <p>{body}</p>
+  <button type="button">
+    <span>Inspect target</span>
+    <span aria-hidden="true">+</span>
+  </button>
+</article>
+
+<style>
+  .scenario {
+    position: relative;
+    display: flex;
+    min-height: 300px;
+    flex-direction: column;
+    align-items: flex-start;
+    overflow: hidden;
+    padding: 20px;
+    border: 1px solid oklch(100% 0 0 / 0.64);
+    border-radius: 8px;
+    background: var(--paper);
+    box-shadow: var(--shadow-tight);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .scenario:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .scenario::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+      linear-gradient(120deg, var(--scenario-tint), transparent 48%),
+      linear-gradient(180deg, transparent, oklch(92% 0.018 264 / 0.54));
+    opacity: 0.68;
+  }
+
+  .scenario > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .scenario--violet {
+    --scenario-accent: var(--violet);
+    --scenario-tint: oklch(90% 0.05 291);
+  }
+
+  .scenario--green {
+    --scenario-accent: var(--green);
+    --scenario-tint: oklch(90% 0.05 155);
+  }
+
+  .scenario--amber {
+    --scenario-accent: var(--amber);
+    --scenario-tint: oklch(92% 0.06 72);
+  }
+
+  .scenario__meta {
+    margin-bottom: 24px;
+  }
+
+  .scenario__meta span {
+    display: inline-flex;
+    padding: 6px 9px;
+    border-radius: 6px;
+    background: oklch(100% 0 0 / 0.62);
+    color: oklch(38% 0.055 264);
+    font-size: 12px;
+    font-weight: 750;
+    box-shadow: inset 0 0 0 1px oklch(80% 0.04 264 / 0.36);
+  }
+
+  .scenario__signal {
+    width: 50px;
+    height: 50px;
+    margin-bottom: 22px;
+    border: 1px solid oklch(100% 0 0 / 0.68);
+    border-radius: 8px;
+    background:
+      linear-gradient(90deg, transparent 45%, var(--scenario-accent) 45% 55%, transparent 55%),
+      linear-gradient(0deg, transparent 45%, var(--scenario-accent) 45% 55%, transparent 55%),
+      oklch(100% 0 0 / 0.64);
+    box-shadow: 0 12px 28px oklch(30% 0.04 264 / 0.12);
+  }
+
+  .scenario h3 {
+    max-width: 11ch;
+    margin: 0 0 12px;
+    font-size: 22px;
+    line-height: 1.15;
+    letter-spacing: 0;
+  }
+
+  .scenario p {
+    margin: 0 0 22px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .scenario button {
+    display: inline-flex;
+    min-width: 150px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: auto;
+    padding: 10px 11px 10px 13px;
+    border: 1px solid oklch(18% 0.03 264);
+    border-radius: 7px;
+    background: var(--ink);
+    color: var(--paper);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 750;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .scenario button span:last-child {
+    display: inline-grid;
+    width: 20px;
+    height: 20px;
+    place-items: center;
+    border-radius: 50%;
+    background: oklch(100% 0 0 / 0.12);
+    color: oklch(92% 0.025 264);
+  }
+
+  .scenario button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px oklch(26% 0.044 264 / 0.16);
+  }
+</style>

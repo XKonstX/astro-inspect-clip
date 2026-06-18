@@ -1,175 +1,13 @@
 // plugins/astro-inspect-clip/app.ts
-import type { ElementInfo, AppState, SelectedEntry } from './types.js';
+import type { AppState, CommentedContextEntry, NoSourceDiagnostic, SelectedEntry, SourceCandidate } from './types.js';
+import { handleCopy } from './clipboard.js';
+import { buildCompleteContextText, buildCopyText, buildNoSourceCopyText } from './copy-text.js';
+import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
+import { bindInstructionDraft, readCommentContexts, readInstructionDraft, writeCommentContexts } from './storage.js';
+import { ensureSourceCache, getElementInfo, readSourceAnnotation, toRelativePath } from './source-cache.js';
+import { injectGlobalStyles, injectPanelStyles } from './styles.js';
 
 const icon = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path fill="#fff" d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14zm-7-2h4v-1h-4v1zm0-3h4v-1h-4v1zm0-3h4v-1h-4v1zm-2 6H7v1h3v-1zm0-3H7v1h3v-1zm0-3H7v1h3v-1z"/></svg>';
-
-/**
- * Read Astro source annotations from the cache first, then from DOM attributes.
- */
-function readSourceAnnotation(element: HTMLElement): { file: string; loc: string } {
-  const cache = (window as any).__ai_note_source_cache__ as Map<HTMLElement, { file: string; loc: string }> | undefined;
-  const cached = cache?.get(element);
-  return {
-    file: cached?.file ?? element.getAttribute('data-astro-source-file') ?? '',
-    loc: cached?.loc ?? element.getAttribute('data-astro-source-loc') ?? '',
-  };
-}
-
-function hasSourceCache(): boolean {
-  return Boolean((window as any).__ai_note_source_cache__);
-}
-
-function ensureSourceCache() {
-  if (hasSourceCache()) return;
-
-  const cache = new Map<HTMLElement, { file: string; loc: string }>();
-  (window as any).__ai_note_source_cache__ = cache;
-  (window as any).__ai_note_source_cache_late__ = true;
-
-  const capture = (element: Element) => {
-    if (!(element instanceof HTMLElement)) return;
-    const file = element.getAttribute('data-astro-source-file') ?? '';
-    const loc = element.getAttribute('data-astro-source-loc') ?? '';
-    if (file || loc) cache.set(element, { file, loc });
-  };
-
-  if (document.documentElement) {
-    capture(document.documentElement);
-    document.documentElement
-      .querySelectorAll('[data-astro-source-file], [data-astro-source-loc]')
-      .forEach(capture);
-  }
-}
-
-function toRelativePath(filePath: string): string {
-  const root = (window as any).__astro_dev_toolbar__?.root as string | undefined;
-  return root && filePath.startsWith(root) ? filePath.slice(root.length) : filePath;
-}
-
-function getElementInfo(element: HTMLElement, filePath: string, location: string): ElementInfo {
-  const relativePath = toRelativePath(filePath);
-
-  const tagName = element.tagName.toLowerCase();
-  const classes = cleanClasses(element.className
-    ? (typeof element.className === 'string' ? element.className : '')
-    : '');
-
-  // Truncate outerHTML for display (max ~120 chars)
-  const rawHtml = element.outerHTML;
-  const htmlSnippet =
-    rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml;
-
-  return { filePath, relativePath, location, tagName, classes, htmlSnippet };
-}
-
-/** Classes added by this plugin — must be stripped from copy output */
-const PLUGIN_CLASSES = ['ai-note-selected', 'ai-note-hover-outline'];
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Strip plugin-owned classes from a className string */
-function cleanClasses(className: string): string {
-  return className
-    .split(/\s+/)
-    .filter(c => c && !PLUGIN_CLASSES.includes(c))
-    .join(', ');
-}
-
-/** Strip plugin classes from an HTML string (quick regex, good enough for snippets) */
-function cleanHtml(html: string): string {
-  return PLUGIN_CLASSES.reduce(
-    (h, cls) => h.replace(new RegExp(`\\b${cls}\\b`, 'g'), ''),
-    html,
-  ).replace(/\s{2,}/g, ' ').trim();
-}
-
-function getTraversalParent(element: HTMLElement): HTMLElement | null {
-  if (element.parentElement) return element.parentElement;
-
-  const root = element.getRootNode();
-  if (root instanceof ShadowRoot && root.host instanceof HTMLElement) {
-    return root.host;
-  }
-
-  return null;
-}
-
-function isDevToolbarElement(element: HTMLElement): boolean {
-  if (element.closest('astro-dev-toolbar')) return true;
-
-  const root = element.getRootNode();
-  return root instanceof ShadowRoot
-    && root.host instanceof HTMLElement
-    && Boolean(root.host.closest('astro-dev-toolbar'));
-}
-
-function describeElement(element: HTMLElement): string {
-  const tagName = element.tagName.toLowerCase();
-  const id = element.id ? `#${element.id}` : '';
-  const classes = cleanClasses(typeof element.className === 'string' ? element.className : '')
-    .split(', ')
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((className) => `.${className}`)
-    .join('');
-
-  return `${tagName}${id}${classes}`;
-}
-
-function buildDomPath(element: HTMLElement): string {
-  const parts: string[] = [];
-  let current: HTMLElement | null = element;
-
-  while (current && parts.length < 6) {
-    if (isDevToolbarElement(current)) break;
-    parts.push(describeElement(current));
-    if (current.tagName.toLowerCase() === 'body') break;
-    current = getTraversalParent(current);
-  }
-
-  return parts.reverse().join(' > ');
-}
-
-interface SourceCandidate {
-  element: HTMLElement;
-  file: string;
-  loc: string;
-  distance: number;
-}
-
-interface NoSourceDiagnostic {
-  title: string;
-  message: string;
-  domPath: string;
-  nearest: SourceCandidate | null;
-}
-
-const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>';
-
-const COPIED_ICON = '<svg width="14" height="14" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="#fff" d="M9.47334.806574C9.41136.744088 9.33763.694492 9.25639.660646S9.08802.609375 9.00001.609375 8.82486.6268 8.74362.660646s-.15497.083442-.21695.145928L3.56001 5.77991 1.47334 3.68657c-.06435-.06216-.14031-.11103-.22354-.14383-.08324-.03281-.17212-.04889-.261578-.04735-.089454.00155-.177727.0207-.259779.05637-.082052.03566-.156277.08713-.218436.15148-.062159.06435-.111035.14031-.143837.22355-.032803.08323-.04889.17212-.047342.26157.001547.08945.020699.17773.056361.25978.035663.08205.087137.15627.151485.21843l2.559996 2.56c.06198.06249.13571.11209.21695.14593.08124.03385.16838.05127.25639.05127s.17514-.01742.25638-.05127c.08124-.03384.15498-.08344.21695-.14593l5.44-5.44c.06767-.06242.12168-.13819.15861-.22253.03694-.08433.05601-.1754.05601-.26747 0-.09206-.01907-.18313-.05601-.26747-.03693-.08433-.09094-.160098-.15861-.222526Z"/></svg>';
-
-function handleCopy(btn: HTMLButtonElement, text: string) {
-  btn.disabled = true;
-  navigator.clipboard.writeText(text).then(() => {
-    btn.innerHTML = `${COPIED_ICON} Copied!`;
-    setTimeout(() => {
-      btn.innerHTML = `${COPY_ICON} Copy`;
-      btn.disabled = false;
-    }, 2000);
-  }).catch(() => {
-    btn.textContent = 'Copy failed';
-    setTimeout(() => {
-      btn.innerHTML = `${COPY_ICON} Copy`;
-      btn.disabled = false;
-    }, 2000);
-  });
-}
 
 export default {
   id: 'inspect-clip',
@@ -181,8 +19,18 @@ export default {
       isMultiSelect: false,
       selectEnabled: true,
       selectedElements: [],
+      commentedContexts: readCommentContexts(),
       hoverOutlineElement: null,
     };
+    let isAppActive = false;
+    let commentActionTarget: HTMLElement | null = null;
+    let isReviewMode = false;
+    let isFoldingToolbar = false;
+    let activeReviewEntry: SelectedEntry | null = null;
+    let reviewPopoverManualPosition: { left: number; top: number } | null = null;
+    let reviewPopoverDragOffset: { x: number; y: number } | null = null;
+    let reviewBarManualPosition: { left: number; top: number } | null = null;
+    let reviewBarDragOffset: { x: number; y: number } | null = null;
 
     ensureSourceCache();
 
@@ -191,659 +39,44 @@ export default {
     const multiIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path fill="currentColor" d="M8 1.5l-5.5 3 5.5 3 5.5-3-5.5-3ZM1.5 9.5l5.5 3 5.5-3M1.5 7l5.5 3 5.5-3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/></svg>';
 
     // ─── Global styles (injected into document head for page-level classes) ──
-    const globalStyle = document.createElement('style');
-    globalStyle.id = 'ai-note-global-styles';
-    globalStyle.textContent = `
-      /* Inspector mode cursor */
-      body.ai-note-inspecting {
-        cursor: crosshair !important;
-      }
-      body.ai-note-inspecting * {
-        cursor: crosshair !important;
-      }
-
-      /* Hover outline */
-      .ai-note-hover-outline {
-        outline: 2px dashed rgba(139, 92, 246, 0.6) !important;
-        outline-offset: 2px !important;
-        transition: outline-color 0.15s ease;
-      }
-
-      /* Selected highlight */
-      .ai-note-selected {
-        outline: 2px solid rgba(139, 92, 246, 0.9) !important;
-        outline-offset: 2px !important;
-        box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15) !important;
-      }
-    `;
-    document.head.appendChild(globalStyle);
+    const globalStyle = injectGlobalStyles();
 
     // ─── Panel styles (scoped to toolbar canvas) ────────────────────────────
-    const style = document.createElement('style');
-    style.textContent = `
-      .ai-note-canvas {
-        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-        color: #c0c4d0;
-        width: 100%;
-        min-width: 0;
-        box-sizing: border-box;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-      }
-
-      .ai-note-panel {
-        display: none;
-        flex-direction: column;
-        gap: 12px;
-        width: 100%;
-        min-width: 0;
-        box-sizing: border-box;
-        max-height: 420px;
-        overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(113, 24, 226, 0.3) transparent;
-      }
-
-      .ai-note-panel[data-visible="true"] {
-        display: flex;
-      }
-
-      .ai-note-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
-        gap: 12px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid rgba(88, 76, 116, 0.25);
-        position: sticky;
-        top: 0;
-        z-index: 2;
-        min-width: 0;
-        background: #161820;
-      }
-
-      .ai-note-header h2 {
-        margin: 0;
-        font-size: 14px;
-        font-weight: 700;
-        color: #fff;
-        letter-spacing: 0.04em;
-        flex: 0 0 auto;
-      }
-
-      .ai-note-header-actions {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        flex-wrap: wrap;
-        gap: 6px;
-        min-width: 0;
-      }
-
-      .ai-note-element-info {
-        width: 100%;
-        min-width: 0;
-        box-sizing: border-box;
-        background:
-          linear-gradient(180deg, rgba(26, 24, 42, 0.55) 0%, rgba(18, 16, 30, 0.55) 100%),
-      linear-gradient(180deg, rgba(29, 31, 40, 0.98), rgba(22, 24, 32, 0.98));
-        border: 1px solid rgba(88, 76, 116, 0.35);
-        border-radius: 12px;
-        padding: 14px;
-        font-size: 13px;
-        line-height: 1.6;
-        box-shadow:
-          inset 0 1px 0 rgba(255, 255, 255, 0.03),
-          0 2px 8px rgba(0, 0, 0, 0.2),
-          0 0 0 1px rgba(113, 24, 226, 0.06);
-      }
-
-      .ai-note-header > .ai-note-element-info {
-        flex: 1 0 100%;
-      }
-
-      .ai-note-info-section {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .ai-note-element-info code {
-        background: rgba(126, 58, 226, 0.15);
-        border: 1px solid rgba(126, 58, 226, 0.12);
-        padding: 1px 7px;
-        border-radius: 5px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11.5px;
-        font-weight: 500;
-        color: #dbb8ff;
-        word-break: break-all;
-        letter-spacing: 0.01em;
-      }
-
-      .ai-note-element-info .label {
-        color: #8b8da2;
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        margin-bottom: 5px;
-      }
-
-      .ai-note-element-info .row {
-        margin-bottom: 0;
-      }
-
-      .ai-note-element-info .row:last-child {
-        margin-bottom: 0;
-      }
-
-      .ai-note-info-divider {
-        height: 1px;
-        background: linear-gradient(90deg, rgba(88, 76, 116, 0.45), rgba(88, 76, 116, 0.15));
-        margin: 10px 0;
-      }
-
-      .ai-note-file-row {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-      }
-
-      .ai-note-file-icon {
-        width: 16px;
-        height: 16px;
-        flex: 0 0 auto;
-        margin-top: 2px;
-        color: #a855f7;
-        filter: drop-shadow(0 0 4px rgba(168, 85, 247, 0.3));
-      }
-
-      .ai-note-file-meta {
-        min-width: 0;
-      }
-
-      .ai-note-file-path code {
-        display: inline-block;
-        max-width: 100%;
-        font-size: 12px;
-        font-weight: 600;
-        color: #f0e7fd;
-        letter-spacing: 0.015em;
-      }
-
-      .ai-note-element-line {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .ai-note-element-line code {
-        font-size: 11.5px;
-        color: #eedcff;
-      }
-
-      .ai-note-classes {
-        color: #9a9cb2;
-        font-size: 11px;
-        line-height: 1.45;
-        letter-spacing: 0.01em;
-        overflow-wrap: anywhere;
-      }
-
-      .ai-note-element-info pre {
-        background: rgba(10, 10, 18, 0.8);
-        border: 1px solid rgba(88, 76, 116, 0.22);
-        border-radius: 8px;
-        padding: 10px 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11.5px;
-        overflow-x: auto;
-        max-height: 64px;
-        overflow-y: auto;
-        margin: 0;
-        line-height: 1.5;
-        color: #b8b0cc;
-        letter-spacing: 0.02em;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(113, 24, 226, 0.3) transparent;
-      }
-
-      .ai-note-element-info pre code {
-        background: none;
-        border: none;
-        padding: 0;
-        font-size: inherit;
-        color: inherit;
-        letter-spacing: inherit;
-      }
-
-      .ai-note-inherited-hint {
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        margin-top: 8px;
-        padding: 5px 8px;
-        background: rgba(139, 92, 246, 0.1);
-        border: 1px solid rgba(139, 92, 246, 0.2);
-        border-radius: 6px;
-        font-size: 11px;
-        color: rgba(168, 140, 220, 1);
-        line-height: 1.35;
-      }
-
-      .ai-note-inherited-hint svg {
-        flex-shrink: 0;
-        opacity: 0.8;
-      }
-
-      .ai-note-open-editor {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        background: transparent;
-        border: none;
-        color: #b89af5;
-        padding: 4px 0 0;
-        border-radius: 0;
-        font-size: 12px;
-        font-weight: 500;
-        line-height: 1.4;
-        cursor: pointer;
-        text-decoration: none;
-        align-self: flex-start;
-        transition: color 0.2s ease;
-      }
-
-      .ai-note-open-editor:hover {
-        color: #ddd0ff;
-        text-decoration: underline;
-        text-underline-offset: 3px;
-        text-decoration-color: rgba(184, 154, 245, 0.5);
-      }
-
-      .ai-note-open-editor:focus-visible,
-      .ai-note-toggle-btn:focus-visible,
-      .ai-note-reinspect-btn:focus-visible,
-      .ai-note-copy-btn:focus-visible,
-      .ai-note-done-btn:focus-visible,
-      .ai-note-selected-item .remove-btn:focus-visible {
-        outline: 2px solid rgba(196, 181, 253, 0.75);
-        outline-offset: 2px;
-      }
-
-      .ai-note-placeholder {
-        text-align: center;
-        padding: 32px 16px 36px;
-        color: #7a7c90;
-      }
-
-      .ai-note-placeholder p {
-        margin: 0;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-        line-height: 1.5;
-        opacity: 0.75;
-      }
-
-      .ai-note-placeholder-actions {
-        margin-top: 12px;
-      }
-
-      /* Note section - sticky at bottom so copy button stays visible */
-      .ai-note-note-section {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        padding-top: 12px;
-        border-top: 1px solid rgba(88, 76, 116, 0.2);
-        position: sticky;
-        bottom: 0;
-        z-index: 2;
-        background: #161820;
-      }
-
-      .ai-note-label {
-        font-size: 10px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: #8b8da2;
-      }
-
-      .ai-note-textarea {
-        background: rgba(14, 12, 24, 0.6);
-        border: 1px solid rgba(88, 76, 116, 0.3);
-        border-radius: 10px;
-        padding: 10px 12px;
-        color: #fff;
-        font-family: ui-sans-serif, system-ui, sans-serif;
-        font-size: 13px;
-        line-height: 1.55;
-        resize: vertical;
-        min-height: 60px;
-        max-height: 200px;
-        width: 100%;
-        box-sizing: border-box;
-        transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
-        letter-spacing: 0.01em;
-      }
-
-      .ai-note-textarea:focus {
-        outline: none;
-        border-color: rgba(139, 92, 246, 0.6);
-        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1), inset 0 0 0 1px rgba(139, 92, 246, 0.15);
-        background: rgba(16, 14, 28, 0.7);
-      }
-
-      .ai-note-textarea::placeholder {
-        color: #5e6078;
-      }
-
-      .ai-note-actions {
-        display: flex;
-        justify-content: flex-end;
-        padding: 8px 0 0;
-        position: sticky;
-        bottom: 0;
-        z-index: 2;
-        background: #161820;
-      }
-
-      .ai-note-copy-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        background: linear-gradient(180deg, #9333ea 0%, #7c3aed 100%);
-        border: none;
-        color: #fff;
-        padding: 8px 18px;
-        border-radius: 9px;
-        font-size: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        letter-spacing: 0.02em;
-        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, filter 0.2s ease;
-        box-shadow:
-          0 4px 14px rgba(124, 58, 237, 0.35),
-          0 1px 3px rgba(0, 0, 0, 0.2),
-          inset 0 1px 0 rgba(255, 255, 255, 0.12);
-      }
-
-      .ai-note-copy-btn:hover {
-        background: linear-gradient(180deg, #a855f7 0%, #8b5cf6 100%);
-        transform: translateY(-1px);
-        box-shadow:
-          0 6px 20px rgba(139, 92, 246, 0.4),
-          0 2px 6px rgba(0, 0, 0, 0.2),
-          inset 0 1px 0 rgba(255, 255, 255, 0.15);
-      }
-
-      .ai-note-copy-btn:active {
-        transform: translateY(0px) scale(0.98);
-        box-shadow:
-          0 2px 8px rgba(124, 58, 237, 0.3),
-          inset 0 1px 0 rgba(255, 255, 255, 0.08);
-      }
-
-      .ai-note-copy-btn:disabled {
-        cursor: default;
-        opacity: 0.78;
-        transform: none;
-      }
-
-      .ai-note-copy-btn:disabled:hover {
-        filter: none;
-        transform: none;
-      }
-
-      .ai-note-copy-btn svg {
-        flex-shrink: 0;
-      }
-
-      /* Re-inspect button */
-      .ai-note-reinspect-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(88, 76, 116, 0.3);
-        color: #a8aac0;
-        padding: 5px 10px;
-        border-radius: 7px;
-        font-size: 11.5px;
-        font-weight: 500;
-        cursor: pointer;
-        flex-shrink: 0;
-        transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
-        letter-spacing: 0.01em;
-      }
-
-      .ai-note-reinspect-btn:hover {
-        background: rgba(139, 92, 246, 0.08);
-        border-color: rgba(139, 92, 246, 0.4);
-        color: #d4c0ff;
-      }
-
-      .ai-note-reinspect-btn:active {
-        background: rgba(139, 92, 246, 0.14);
-        transform: scale(0.97);
-      }
-
-      .ai-note-empty-state {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .ai-note-empty-state p {
-        margin: 0;
-      }
-
-      .ai-note-diagnostic-title {
-        color: #d8ccf8;
-        font-size: 12px;
-        font-weight: 650;
-        line-height: 1.45;
-        margin: 0;
-      }
-
-      .ai-note-empty-state .ai-note-element-line {
-        align-items: flex-start;
-      }
-
-      .ai-note-help {
-        color: #8a8c9e;
-        font-size: 12px;
-        line-height: 1.55;
-        margin: 0;
-        letter-spacing: 0.01em;
-      }
-
-      /* Toggle button group (segmented control) */
-      .ai-note-toggles {
-        display: inline-flex;
-        align-items: center;
-        background: rgba(14, 12, 24, 0.6);
-        border: 1px solid rgba(88, 76, 116, 0.3);
-        border-radius: 10px;
-        padding: 3px;
-        gap: 2px;
-      }
-
-      .ai-note-toggle-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: transparent;
-        border: none;
-        color: #6b6d82;
-        padding: 7px 14px;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-        letter-spacing: 0.01em;
-        white-space: nowrap;
-        line-height: 1;
-      }
-
-      .ai-note-toggle-btn[aria-pressed="true"] {
-        background: rgba(139, 92, 246, 0.18);
-        color: #d4c0ff;
-        box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.25);
-      }
-
-      .ai-note-toggle-btn:hover {
-        color: #a8aac0;
-        background: rgba(255, 255, 255, 0.03);
-      }
-
-      .ai-note-toggle-btn.active {
-        background: rgba(139, 92, 246, 0.18);
-        color: #d4c0ff;
-        box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.25);
-      }
-
-      .ai-note-toggle-btn.active:hover {
-        background: rgba(139, 92, 246, 0.25);
-        color: #ddd0ff;
-      }
-
-      .ai-note-toggle-btn svg {
-        flex-shrink: 0;
-        opacity: 0.7;
-      }
-
-      .ai-note-toggle-btn.active svg {
-        opacity: 1;
-      }
-
-      /* Multi-select counter badge */
-      .ai-note-counter {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 22px;
-        height: 22px;
-        background: rgba(139, 92, 246, 0.25);
-        border-radius: 11px;
-        font-size: 11px;
-        font-weight: 700;
-        color: #d4c0ff;
-        padding: 0 6px;
-      }
-
-      /* Done button */
-      .ai-note-done-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 7px;
-        background: linear-gradient(180deg, #9333ea 0%, #7c3aed 100%);
-        border: none;
-        color: #fff;
-        padding: 8px 18px;
-        border-radius: 9px;
-        font-size: 12px;
-        font-weight: 600;
-        cursor: pointer;
-        letter-spacing: 0.02em;
-        transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease;
-        box-shadow:
-          0 4px 14px rgba(124, 58, 237, 0.35),
-          0 1px 3px rgba(0, 0, 0, 0.2),
-          inset 0 1px 0 rgba(255, 255, 255, 0.12);
-      }
-
-      .ai-note-done-btn:hover {
-        background: linear-gradient(180deg, #a855f7 0%, #8b5cf6 100%);
-        transform: translateY(-1px);
-        box-shadow:
-          0 6px 20px rgba(139, 92, 246, 0.4),
-          0 2px 6px rgba(0, 0, 0, 0.2),
-          inset 0 1px 0 rgba(255, 255, 255, 0.15);
-      }
-
-      .ai-note-done-btn:active {
-        transform: translateY(0px) scale(0.98);
-      }
-
-      /* Selected elements list */
-      .ai-note-selected-list {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-
-      .ai-note-selected-item {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 6px 8px;
-        background: rgba(14, 12, 24, 0.4);
-        border: 1px solid rgba(88, 76, 116, 0.2);
-        border-radius: 8px;
-        font-size: 12px;
-      }
-
-      .ai-note-selected-item .number {
-        color: #8b8da2;
-        font-size: 10px;
-        font-weight: 700;
-        min-width: 16px;
-      }
-
-      .ai-note-selected-item .item-content {
-        display: flex;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 6px;
-        min-width: 0;
-        flex: 1 1 180px;
-      }
-
-      .ai-note-selected-item code {
-        background: rgba(126, 58, 226, 0.15);
-        border: 1px solid rgba(126, 58, 226, 0.12);
-        padding: 1px 7px;
-        border-radius: 5px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 11px;
-        font-weight: 500;
-        color: #dbb8ff;
-      }
-
-      .ai-note-selected-item .item-loc {
-        color: #6b6d82;
-        font-size: 11px;
-        min-width: 0;
-        overflow-wrap: anywhere;
-      }
-
-      .ai-note-selected-item .remove-btn {
-        margin-left: auto;
-        background: none;
-        border: none;
-        color: #8b8da2;
-        cursor: pointer;
-        padding: 2px 4px;
-        font-size: 14px;
-        line-height: 1;
-        border-radius: 4px;
-        flex-shrink: 0;
-        transition: color 0.15s ease, background 0.15s ease;
-      }
-
-      .ai-note-selected-item .remove-btn:hover {
-        color: #f87171;
-        background: rgba(248, 113, 113, 0.1);
-      }
+    injectPanelStyles(canvas);
+
+    document.getElementById('ai-note-comment-actions')?.remove();
+    document.getElementById('ai-note-review-popover')?.remove();
+    document.getElementById('ai-note-review-bar')?.remove();
+
+    const commentActions = document.createElement('div');
+    commentActions.id = 'ai-note-comment-actions';
+    commentActions.className = 'ai-note-comment-actions';
+    commentActions.setAttribute('aria-hidden', 'true');
+    commentActions.innerHTML = `
+      <button class="ai-note-comment-action" type="button" data-action="edit-comment" aria-label="Edit comment" title="Edit comment">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path fill="currentColor" d="M11.2 1.7a1.8 1.8 0 0 1 2.6 2.6l-8.7 8.7-3.1.8.8-3.1 8.4-9Zm-.8 2.1-6.6 6.6-.3 1.1 1.1-.3 6.6-6.6-.8-.8Zm1.6-1.2-.8.8.8.8.8-.8a.55.55 0 0 0-.8-.8Z"/>
+        </svg>
+      </button>
+      <button class="ai-note-comment-action" type="button" data-action="delete-comment" aria-label="Delete marking" title="Delete marking">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path fill="currentColor" d="M6.25 1.75h3.5l.5 1H13v1.25H3V2.75h2.75l.5-1Zm-1.75 3h7l-.45 8.05a1.55 1.55 0 0 1-1.55 1.45h-3a1.55 1.55 0 0 1-1.55-1.45L4.5 4.75Zm1.3 1.25.37 6.72c.02.16.16.28.33.28h3c.17 0 .31-.12.33-.28L10.2 6H5.8Z"/>
+        </svg>
+      </button>
     `;
-    canvas.append(style);
+    document.body.append(commentActions);
+
+    const reviewPopover = document.createElement('div');
+    reviewPopover.id = 'ai-note-review-popover';
+    reviewPopover.className = 'ai-note-review-popover';
+    reviewPopover.setAttribute('aria-hidden', 'true');
+    document.body.append(reviewPopover);
+
+    const reviewBar = document.createElement('div');
+    reviewBar.id = 'ai-note-review-bar';
+    reviewBar.className = 'ai-note-review-bar';
+    reviewBar.setAttribute('aria-hidden', 'true');
+    document.body.append(reviewBar);
 
     // ─── Panel DOM ────────────────────────────────────────────
     const panel = document.createElement('div');
@@ -865,6 +98,8 @@ export default {
       const hint = state.selectEnabled
         ? (state.isMultiSelect ? 'Click elements to select them.' : 'Click any element to inspect it.')
         : 'Enable select to inspect elements.';
+      const hasDraft = Boolean(readInstructionDraft());
+      const contextCount = state.commentedContexts.length;
 
       panel.innerHTML = `
         <div class="ai-note-placeholder">
@@ -884,6 +119,26 @@ export default {
             </div>
           </div>
         </div>
+        ${hasDraft ? `
+          <div class="ai-note-note-section">
+            <label class="ai-note-label" for="ai-note-textarea">Instruction</label>
+            <textarea
+              id="ai-note-textarea"
+              class="ai-note-textarea"
+              placeholder="Describe the change you want..."
+              rows="2"
+            ></textarea>
+          </div>
+        ` : ''}
+        ${contextCount > 0 ? `
+          <div class="ai-note-context-summary">
+            <p>${contextCount} commented element${contextCount > 1 ? 's' : ''} in context.</p>
+            <div class="ai-note-actions">
+              <button class="ai-note-secondary-btn" type="button" data-action="copy-complete">Copy complete context (${contextCount})</button>
+              <button class="ai-note-danger-btn" type="button" data-action="clear-context">Clear all</button>
+            </div>
+          </div>
+        ` : ''}
       `;
 
       const toggleSelectBtn = panel.querySelector('[data-action="toggle-select"]') as HTMLButtonElement;
@@ -909,94 +164,634 @@ export default {
         });
       }
 
+      const textarea = panel.querySelector('#ai-note-textarea') as HTMLTextAreaElement | null;
+      if (textarea) bindInstructionDraft(textarea);
+      bindCompleteContextActions();
+
       panel.dataset.visible = 'true';
     }
 
-    function buildCopyText(entries: SelectedEntry[], note: string): string {
-      const lines: string[] = [];
+    function getCommentId(entry: SelectedEntry): string {
+      return [
+        entry.info.filePath,
+        entry.info.location,
+        entry.element.tagName.toLowerCase(),
+      ].join('::');
+    }
 
-      if (entries.length === 1) {
-        // Single element — compact format (same as before)
-        const { element, info, isInherited } = entries[0];
-        lines.push(`File: ${info.relativePath}:${info.location}`);
+    function toCommentedContextEntry(entry: SelectedEntry, instruction: string): CommentedContextEntry {
+      const rawHtml = cleanHtml(entry.element.outerHTML);
+      return {
+        id: getCommentId(entry),
+        filePath: entry.info.filePath,
+        relativePath: entry.info.relativePath,
+        location: entry.info.location,
+        tagName: entry.element.tagName.toLowerCase(),
+        classes: cleanClasses(typeof entry.element.className === 'string' ? entry.element.className : ''),
+        htmlSnippet: rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml,
+        instruction,
+        isInherited: entry.isInherited,
+      };
+    }
 
-        const tagName = element.tagName.toLowerCase();
-        const classes = cleanClasses(typeof element.className === 'string' ? element.className : '');
-        const rawHtml = cleanHtml(element.outerHTML);
-        const htmlSnippet = rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml;
+    function getCommentForEntry(entry: SelectedEntry): CommentedContextEntry | undefined {
+      const id = getCommentId(entry);
+      return state.commentedContexts.find((context) => context.id === id);
+    }
 
-        lines.push(`Element: <${tagName}>`);
-        if (classes) lines.push(`Classes: ${classes}`);
-        lines.push(`HTML: ${htmlSnippet}`);
-        if (isInherited) lines.push('(Source location resolved from parent)');
+    function upsertCommentContext(entry: SelectedEntry, instruction: string) {
+      const id = getCommentId(entry);
+      const trimmedInstruction = instruction.trim();
+      const existingIndex = state.commentedContexts.findIndex((context) => context.id === id);
 
-        // Island props
-        const island = info.tagName === 'astro-island' ? element : element.closest('astro-island');
-        if (island) {
-          const componentUrl = island.getAttribute('component-url');
-          if (componentUrl) lines.push(`Component: ${componentUrl}`);
-          const props = island.getAttribute('props');
-          if (props) {
-            try {
-              const parsed = JSON.parse(props);
-              const cleanProps: Record<string, unknown> = {};
-              for (const [key, value] of Object.entries(parsed)) {
-                if (!key.startsWith('data-astro-cid-')) cleanProps[key] = value;
-              }
-              if (Object.keys(cleanProps).length > 0) {
-                lines.push(`Props: ${JSON.stringify(cleanProps, undefined, 2)}`);
-              }
-            } catch {}
-          }
+      if (trimmedInstruction) {
+        const nextContext = toCommentedContextEntry(entry, trimmedInstruction);
+        if (existingIndex >= 0) {
+          state.commentedContexts[existingIndex] = nextContext;
+        } else {
+          state.commentedContexts.push(nextContext);
         }
+        entry.element.classList.add('ai-note-commented');
       } else {
-        // Multiple elements — grouped by file
-        const byFile = new Map<string, SelectedEntry[]>();
-        for (const entry of entries) {
-          const key = entry.info.filePath;
-          if (!byFile.has(key)) byFile.set(key, []);
-          byFile.get(key)!.push(entry);
-        }
+        state.commentedContexts = state.commentedContexts.filter((context) => context.id !== id);
+        entry.element.classList.remove('ai-note-commented');
+      }
 
-        let num = 0;
-        for (const [_file, fileEntries] of byFile) {
-          const relPath = fileEntries[0].info.relativePath;
-          if (byFile.size > 1 || fileEntries.length > 1) {
-            lines.push(`File: ${relPath}`);
-          }
+      writeCommentContexts(state.commentedContexts);
+      markCommentedElements();
+      if (trimmedInstruction) entry.element.classList.add('ai-note-commented');
+      updateContextControls();
+      renderReviewBar();
+    }
 
-          for (const entry of fileEntries) {
-            num++;
-            const el = entry.element;
-            const info = entry.info;
-            const tagName = el.tagName.toLowerCase();
-            const classes = cleanClasses(typeof el.className === 'string' ? el.className : '');
-            const rawHtml = cleanHtml(el.outerHTML);
-            const htmlSnippet = rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml;
+    function clearCommentContexts() {
+      state.commentedContexts = [];
+      writeCommentContexts(state.commentedContexts);
+      markCommentedElements();
+      updateContextControls();
+      renderReviewBar();
+    }
 
-            if (byFile.size === 1) {
-              // Same file, multiple elements
-              lines.push(`File: ${info.relativePath}:${info.location}`);
-              lines.push(`Element ${num}: <${tagName}>`);
-            } else {
-              // Multiple files
-              lines.push(`  Element ${num}: <${tagName}> (${info.location})`);
-            }
+    function findElementsForComment(context: CommentedContextEntry): HTMLElement[] {
+      const matches: HTMLElement[] = [];
+      const sourceCache = window.__ai_note_source_cache__;
 
-            if (classes) lines.push(`Classes: ${classes}`);
-            lines.push(`HTML: ${htmlSnippet}`);
-            if (entry.isInherited) lines.push('(Source location resolved from parent)');
-            lines.push('');
+      if (sourceCache) {
+        for (const [element, source] of sourceCache.entries()) {
+          if (
+            source.file === context.filePath
+            && source.loc === context.location
+            && element.tagName.toLowerCase() === context.tagName
+          ) {
+            matches.push(element);
           }
         }
       }
 
-      if (note.trim()) {
-        lines.push('Instruction:');
-        lines.push(note.trim());
+      document
+        .querySelectorAll('[data-astro-source-file], [data-astro-source-loc]')
+        .forEach((element) => {
+          if (!(element instanceof HTMLElement)) return;
+          const source = readSourceAnnotation(element);
+          if (
+            source.file === context.filePath
+            && source.loc === context.location
+            && element.tagName.toLowerCase() === context.tagName
+            && !matches.includes(element)
+          ) {
+            matches.push(element);
+          }
+        });
+
+      return matches;
+    }
+
+    function markCommentedElements() {
+      clearCommentedElementMarks();
+
+      for (const context of state.commentedContexts) {
+        const [element] = findElementsForComment(context);
+        element?.classList.add('ai-note-commented');
+      }
+    }
+
+    function clearCommentedElementMarks() {
+      document
+        .querySelectorAll('.ai-note-commented, .ai-note-commented-hover')
+        .forEach((element) => {
+          element.classList.remove('ai-note-commented');
+          element.classList.remove('ai-note-commented-hover');
+        });
+    }
+
+    function showCommentActions(element: HTMLElement) {
+      if (commentActionTarget && commentActionTarget !== element) {
+        commentActionTarget.classList.remove('ai-note-commented-hover');
       }
 
-      return lines.join('\n');
+      commentActionTarget = element;
+      element.classList.add('ai-note-commented-hover');
+      commentActions.dataset.visible = 'true';
+      commentActions.setAttribute('aria-hidden', 'false');
+      updateCommentActionsPosition();
+    }
+
+    function hideCommentActions() {
+      commentActionTarget?.classList.remove('ai-note-commented-hover');
+      commentActionTarget = null;
+      commentActions.dataset.visible = 'false';
+      commentActions.setAttribute('aria-hidden', 'true');
+    }
+
+    function updateCommentActionsPosition() {
+      if (!commentActionTarget) return;
+
+      const rect = commentActionTarget.getBoundingClientRect();
+      const actionsWidth = commentActions.offsetWidth || 60;
+      const actionsHeight = commentActions.offsetHeight || 32;
+      const left = Math.min(
+        window.innerWidth - actionsWidth - 8,
+        Math.max(8, rect.right - actionsWidth + 6),
+      );
+      const top = Math.min(
+        window.innerHeight - actionsHeight - 8,
+        Math.max(8, rect.top - 14),
+      );
+
+      commentActions.style.left = `${left}px`;
+      commentActions.style.top = `${top}px`;
+    }
+
+    function updateFloatingReviewUi() {
+      updateCommentActionsPosition();
+      positionReviewBar();
+      positionReviewPopover();
+    }
+
+    function deleteCommentForElement(element: HTMLElement): boolean {
+      const { element: resolved, info } = resolveSourceElement(element);
+      if (!info) return false;
+
+      const entry = {
+        element,
+        info,
+        isInherited: resolved !== element,
+      };
+      const removedId = getCommentId(entry);
+
+      upsertCommentContext(entry, '');
+      hideCommentActions();
+
+      const selectedEntry = state.selectedElements[0];
+      if (selectedEntry && getCommentId(selectedEntry) === removedId) {
+        clearSelection();
+        renderPlaceholder();
+      }
+
+      return true;
+    }
+
+    function getEntryForElement(element: HTMLElement): SelectedEntry | null {
+      const { element: resolved, info } = resolveSourceElement(element);
+      if (!info) return null;
+
+      return {
+        element,
+        info,
+        isInherited: resolved !== element,
+      };
+    }
+
+    function positionReviewPopover() {
+      if (!activeReviewEntry || reviewPopover.dataset.visible !== 'true') return;
+
+      const popoverWidth = reviewPopover.offsetWidth || 360;
+      const popoverHeight = reviewPopover.offsetHeight || 210;
+      const gap = 12;
+      const padding = 12;
+      const barRect = reviewBar.dataset.visible === 'true'
+        ? reviewBar.getBoundingClientRect()
+        : null;
+      const bottomLimit = barRect
+        ? Math.max(padding, barRect.top - gap)
+        : window.innerHeight - padding;
+      const availableHeight = Math.max(120, bottomLimit - padding);
+      const effectivePopoverHeight = Math.min(popoverHeight, availableHeight);
+      const anchorRect = activeReviewEntry.element.getBoundingClientRect();
+
+      if (reviewPopoverManualPosition) {
+        const clamped = clampReviewPopoverPosition(
+          reviewPopoverManualPosition.left,
+          reviewPopoverManualPosition.top,
+        );
+        reviewPopoverManualPosition = clamped;
+        reviewPopover.style.left = `${clamped.left}px`;
+        reviewPopover.style.top = `${clamped.top}px`;
+        reviewPopover.style.maxHeight = `${availableHeight}px`;
+        return;
+      }
+
+      let left = anchorRect.right + gap;
+      if (left + popoverWidth > window.innerWidth - padding) {
+        left = anchorRect.left - popoverWidth - gap;
+      }
+      if (left < padding) {
+        left = Math.min(window.innerWidth - popoverWidth - padding, Math.max(padding, anchorRect.left));
+      }
+
+      let top = anchorRect.top;
+      if (top + effectivePopoverHeight > bottomLimit) {
+        top = anchorRect.bottom + gap;
+      }
+      if (top + effectivePopoverHeight > bottomLimit) {
+        top = anchorRect.top - effectivePopoverHeight - gap;
+      }
+      if (top < padding) {
+        top = Math.max(padding, Math.min(anchorRect.top, bottomLimit - effectivePopoverHeight));
+      }
+
+      reviewPopover.style.left = `${left}px`;
+      reviewPopover.style.top = `${top}px`;
+      reviewPopover.style.maxHeight = `${availableHeight}px`;
+    }
+
+    function getReviewPopoverBounds() {
+      const gap = 12;
+      const padding = 12;
+      const popoverWidth = reviewPopover.offsetWidth || 360;
+      const popoverHeight = reviewPopover.offsetHeight || 210;
+      const barRect = reviewBar.dataset.visible === 'true'
+        ? reviewBar.getBoundingClientRect()
+        : null;
+      const bottomLimit = barRect
+        ? Math.max(padding, barRect.top - gap)
+        : window.innerHeight - padding;
+      const availableHeight = Math.max(120, bottomLimit - padding);
+
+      return {
+        maxLeft: Math.max(padding, window.innerWidth - popoverWidth - padding),
+        maxTop: Math.max(padding, bottomLimit - Math.min(popoverHeight, availableHeight)),
+        padding,
+        availableHeight,
+      };
+    }
+
+    function clampReviewPopoverPosition(left: number, top: number) {
+      const bounds = getReviewPopoverBounds();
+      return {
+        left: Math.min(bounds.maxLeft, Math.max(bounds.padding, left)),
+        top: Math.min(bounds.maxTop, Math.max(bounds.padding, top)),
+      };
+    }
+
+    function onReviewPopoverDragMove(event: PointerEvent) {
+      if (!reviewPopoverDragOffset) return;
+
+      event.preventDefault();
+      const nextPosition = clampReviewPopoverPosition(
+        event.clientX - reviewPopoverDragOffset.x,
+        event.clientY - reviewPopoverDragOffset.y,
+      );
+      reviewPopoverManualPosition = nextPosition;
+      reviewPopover.style.left = `${nextPosition.left}px`;
+      reviewPopover.style.top = `${nextPosition.top}px`;
+      reviewPopover.style.maxHeight = `${getReviewPopoverBounds().availableHeight}px`;
+    }
+
+    function endReviewPopoverDrag() {
+      reviewPopoverDragOffset = null;
+      document.removeEventListener('pointermove', onReviewPopoverDragMove);
+      document.removeEventListener('pointerup', endReviewPopoverDrag);
+      document.removeEventListener('pointercancel', endReviewPopoverDrag);
+    }
+
+    function getReviewBarBounds() {
+      const padding = 12;
+      const barWidth = reviewBar.offsetWidth || 240;
+      const barHeight = reviewBar.offsetHeight || 52;
+
+      return {
+        maxLeft: Math.max(padding, window.innerWidth - barWidth - padding),
+        maxTop: Math.max(padding, window.innerHeight - barHeight - padding),
+        padding,
+      };
+    }
+
+    function clampReviewBarPosition(left: number, top: number) {
+      const bounds = getReviewBarBounds();
+      return {
+        left: Math.min(bounds.maxLeft, Math.max(bounds.padding, left)),
+        top: Math.min(bounds.maxTop, Math.max(bounds.padding, top)),
+      };
+    }
+
+    function positionReviewBar() {
+      if (reviewBar.dataset.visible !== 'true') return;
+
+      if (!reviewBarManualPosition) {
+        reviewBar.style.left = '';
+        reviewBar.style.top = '';
+        reviewBar.style.right = '14px';
+        reviewBar.style.bottom = 'max(14px, env(safe-area-inset-bottom))';
+        return;
+      }
+
+      const clamped = clampReviewBarPosition(
+        reviewBarManualPosition.left,
+        reviewBarManualPosition.top,
+      );
+      reviewBarManualPosition = clamped;
+      reviewBar.style.left = `${clamped.left}px`;
+      reviewBar.style.top = `${clamped.top}px`;
+      reviewBar.style.right = 'auto';
+      reviewBar.style.bottom = 'auto';
+    }
+
+    function onReviewBarDragMove(event: PointerEvent) {
+      if (!reviewBarDragOffset) return;
+
+      event.preventDefault();
+      reviewBarManualPosition = clampReviewBarPosition(
+        event.clientX - reviewBarDragOffset.x,
+        event.clientY - reviewBarDragOffset.y,
+      );
+      positionReviewBar();
+      positionReviewPopover();
+    }
+
+    function endReviewBarDrag() {
+      reviewBarDragOffset = null;
+      document.removeEventListener('pointermove', onReviewBarDragMove);
+      document.removeEventListener('pointerup', endReviewBarDrag);
+      document.removeEventListener('pointercancel', endReviewBarDrag);
+    }
+
+    function hideReviewPopover() {
+      activeReviewEntry = null;
+      endReviewPopoverDrag();
+      reviewPopover.dataset.visible = 'false';
+      reviewPopover.setAttribute('aria-hidden', 'true');
+      reviewPopover.innerHTML = '';
+      clearSelection();
+    }
+
+    function renderReviewPopover(entry: SelectedEntry) {
+      activeReviewEntry = entry;
+      const existingComment = getCommentForEntry(entry);
+      const title = `${entry.info.relativePath}:${entry.info.location}`;
+
+      clearSelection();
+      entry.element.classList.add('ai-note-selected');
+      if (existingComment) entry.element.classList.add('ai-note-commented');
+      state.selectedElements = [entry];
+
+      reviewPopover.innerHTML = `
+        <div class="ai-note-review-drag-handle" role="separator" aria-label="Move comment panel" title="Drag panel"></div>
+        <div class="ai-note-review-popover-header">
+          <p class="ai-note-review-popover-title">${escapeHtml(title)}</p>
+          <button class="ai-note-review-popover-close" type="button" aria-label="Close review note">&times;</button>
+        </div>
+        <textarea class="ai-note-review-textarea" placeholder="Describe the change..." rows="4">${escapeHtml(existingComment?.instruction ?? '')}</textarea>
+        <div class="ai-note-review-popover-actions">
+          <button class="ai-note-review-btn" type="button" data-action="delete-review" data-danger="true">Delete</button>
+          <button class="ai-note-review-btn" type="button" data-action="save-copy-review">Save & Copy</button>
+          <button class="ai-note-review-btn" type="button" data-action="save-review" data-primary="true">Save</button>
+        </div>
+      `;
+
+      reviewPopover.dataset.visible = 'true';
+      reviewPopover.setAttribute('aria-hidden', 'false');
+      positionReviewPopover();
+
+      const textarea = reviewPopover.querySelector('.ai-note-review-textarea') as HTMLTextAreaElement;
+      const saveBtn = reviewPopover.querySelector('[data-action="save-review"]') as HTMLButtonElement;
+      const saveCopyBtn = reviewPopover.querySelector('[data-action="save-copy-review"]') as HTMLButtonElement;
+      const deleteBtn = reviewPopover.querySelector('[data-action="delete-review"]') as HTMLButtonElement;
+      const closeBtn = reviewPopover.querySelector('.ai-note-review-popover-close') as HTMLButtonElement;
+      const dragHandle = reviewPopover.querySelector('.ai-note-review-drag-handle') as HTMLElement;
+
+      const save = () => {
+        upsertCommentContext(entry, textarea.value);
+        hideReviewPopover();
+        renderReviewBar();
+      };
+
+      textarea.addEventListener('input', () => {
+        upsertCommentContext(entry, textarea.value);
+      });
+
+      saveBtn.addEventListener('click', save);
+      saveCopyBtn.addEventListener('click', () => {
+        upsertCommentContext(entry, textarea.value);
+        handleCopy(saveCopyBtn, buildCopyText([entry], textarea.value));
+        hideReviewPopover();
+        renderReviewBar();
+      });
+      deleteBtn.addEventListener('click', () => {
+        upsertCommentContext(entry, '');
+        hideReviewPopover();
+        renderReviewBar();
+      });
+      closeBtn.addEventListener('click', () => {
+        hideReviewPopover();
+        renderReviewBar();
+      });
+      dragHandle.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = reviewPopover.getBoundingClientRect();
+        reviewPopoverDragOffset = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        document.addEventListener('pointermove', onReviewPopoverDragMove);
+        document.addEventListener('pointerup', endReviewPopoverDrag);
+        document.addEventListener('pointercancel', endReviewPopoverDrag);
+      });
+
+      requestAnimationFrame(() => {
+        positionReviewPopover();
+        textarea.focus();
+      });
+    }
+
+    function renderReviewBar() {
+      const count = state.commentedContexts.length;
+      const hasOpenPopover = reviewPopover.dataset.visible === 'true';
+
+      if (!isReviewMode && count === 0 && !hasOpenPopover) {
+        reviewBar.dataset.visible = 'false';
+        reviewBar.setAttribute('aria-hidden', 'true');
+        reviewBar.innerHTML = '';
+        return;
+      }
+
+      reviewBar.innerHTML = `
+        <button class="ai-note-review-record-btn" type="button" data-action="${isReviewMode ? 'stop-review' : 'start-review'}" data-state="${isReviewMode ? 'recording' : 'idle'}">
+          <span class="ai-note-review-record-dot" aria-hidden="true"></span>
+          ${isReviewMode ? 'Stop' : 'Start'}
+        </button>
+        ${count > 0 ? `
+          <button class="ai-note-review-context-btn" type="button" data-action="copy-review-context">Copy context (${count})</button>
+          <button class="ai-note-review-clear-btn" type="button" data-action="clear-review-context">Clear context</button>
+        ` : ''}
+        <button class="ai-note-review-close-btn" type="button" data-action="close-review-bar" aria-label="Close review controls" title="Close">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path fill="currentColor" d="M4.28 3.22 8 6.94l3.72-3.72 1.06 1.06L9.06 8l3.72 3.72-1.06 1.06L8 9.06l-3.72 3.72-1.06-1.06L6.94 8 3.22 4.28l1.06-1.06Z"/>
+          </svg>
+        </button>
+        <div class="ai-note-review-bar-drag" role="separator" aria-label="Move review controls" title="Drag controls"></div>
+      `;
+      reviewBar.dataset.visible = 'true';
+      reviewBar.setAttribute('aria-hidden', 'false');
+      positionReviewBar();
+
+      const startBtn = reviewBar.querySelector('[data-action="start-review"]') as HTMLButtonElement | null;
+      startBtn?.addEventListener('click', () => {
+        startReviewMode();
+      });
+
+      const stopBtn = reviewBar.querySelector('[data-action="stop-review"]') as HTMLButtonElement | null;
+      stopBtn?.addEventListener('click', () => {
+        stopReviewMode();
+      });
+
+      const copyContextBtn = reviewBar.querySelector('[data-action="copy-review-context"]') as HTMLButtonElement | null;
+      if (copyContextBtn) {
+        copyContextBtn.addEventListener('click', () => {
+          handleCopy(copyContextBtn, buildCompleteContextText(state.commentedContexts));
+        });
+      }
+
+      const clearContextBtn = reviewBar.querySelector('[data-action="clear-review-context"]') as HTMLButtonElement | null;
+      if (clearContextBtn) {
+        clearContextBtn.addEventListener('click', () => {
+          clearCommentContexts();
+          hideReviewPopover();
+        });
+      }
+
+      const closeBarBtn = reviewBar.querySelector('[data-action="close-review-bar"]') as HTMLButtonElement;
+      closeBarBtn.addEventListener('click', () => {
+        endReviewBarDrag();
+        isReviewMode = false;
+        stopInspecting();
+        hideReviewPopover();
+        hideCommentActions();
+        reviewBar.dataset.visible = 'false';
+        reviewBar.setAttribute('aria-hidden', 'true');
+        reviewBar.innerHTML = '';
+        markCommentedElements();
+      });
+
+      const dragBarHandle = reviewBar.querySelector('.ai-note-review-bar-drag') as HTMLElement;
+      dragBarHandle.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = reviewBar.getBoundingClientRect();
+        reviewBarDragOffset = {
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        };
+        reviewBarManualPosition = {
+          left: rect.left,
+          top: rect.top,
+        };
+        reviewBar.style.left = `${rect.left}px`;
+        reviewBar.style.top = `${rect.top}px`;
+        reviewBar.style.right = 'auto';
+        reviewBar.style.bottom = 'auto';
+        document.addEventListener('pointermove', onReviewBarDragMove);
+        document.addEventListener('pointerup', endReviewBarDrag);
+        document.addEventListener('pointercancel', endReviewBarDrag);
+      });
+    }
+
+    function foldToolbarPanel() {
+      if (!isAppActive) return;
+      isFoldingToolbar = true;
+      eventTarget.dispatchEvent(new CustomEvent('toggle-app', { detail: { state: false } }));
+    }
+
+    function startReviewMode() {
+      isReviewMode = true;
+      state.selectEnabled = true;
+      state.isMultiSelect = false;
+      ensureSourceCache();
+      markCommentedElements();
+      state.isInspecting = true;
+      document.body.classList.add('ai-note-inspecting');
+      renderReviewBar();
+    }
+
+    function stopReviewMode() {
+      isReviewMode = false;
+      stopInspecting();
+      hideCommentActions();
+      renderReviewBar();
+      markCommentedElements();
+    }
+
+    function bindElementComment(entry: SelectedEntry, textarea: HTMLTextAreaElement) {
+      const existingComment = getCommentForEntry(entry);
+      textarea.value = existingComment?.instruction ?? '';
+      const removeCommentBtn = panel.querySelector('[data-action="remove-comment"]') as HTMLButtonElement | null;
+      if (removeCommentBtn) removeCommentBtn.disabled = !textarea.value.trim();
+
+      textarea.addEventListener('input', () => {
+        upsertCommentContext(entry, textarea.value);
+        if (removeCommentBtn) removeCommentBtn.disabled = !textarea.value.trim();
+      });
+    }
+
+    function openCommentEditorForElement(element: HTMLElement): boolean {
+      const entry = getEntryForElement(element);
+      if (!entry) return false;
+
+      renderReviewPopover(entry);
+      renderReviewBar();
+      return true;
+    }
+
+    function getCommentedClickTarget(target: HTMLElement): HTMLElement | null {
+      const commented = target.closest('.ai-note-commented');
+      return commented instanceof HTMLElement && !isDevToolbarElement(commented)
+        ? commented
+        : null;
+    }
+
+    function updateContextControls() {
+      const count = state.commentedContexts.length;
+
+      panel.querySelectorAll('[data-action="copy-complete"]').forEach((button) => {
+        const btn = button as HTMLButtonElement;
+        btn.disabled = count === 0;
+        btn.textContent = count > 0 ? `Copy complete context (${count})` : 'Copy complete context';
+      });
+
+      panel.querySelectorAll('[data-action="clear-context"]').forEach((button) => {
+        (button as HTMLButtonElement).disabled = count === 0;
+      });
+    }
+
+    function bindCompleteContextActions(root: ParentNode = panel) {
+      root.querySelectorAll('[data-action="copy-complete"]').forEach((button) => {
+        const btn = button as HTMLButtonElement;
+        btn.addEventListener('click', () => {
+          if (state.commentedContexts.length === 0) return;
+          handleCopy(btn, buildCompleteContextText(state.commentedContexts));
+        });
+      });
+
+      root.querySelectorAll('[data-action="clear-context"]').forEach((button) => {
+        const btn = button as HTMLButtonElement;
+        btn.addEventListener('click', () => {
+          clearCommentContexts();
+          renderPlaceholder();
+        });
+      });
+
+      updateContextControls();
     }
 
     function renderElementInfo(entry: SelectedEntry) {
@@ -1017,6 +812,7 @@ export default {
             return raw.length > 120 ? raw.slice(0, 117) + '...' : raw;
           })()
         : info.htmlSnippet;
+      const currentComment = getCommentForEntry(entry);
 
       const inheritedHint = isInherited
         ? `<div class="ai-note-inherited-hint">
@@ -1085,6 +881,8 @@ export default {
               <svg width="14" height="14" viewBox="0 0 10 11" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M9.125.8125h-6c-.14918 0-.29226.059263-.39775.164752-.10549.105488-.16475.248568-.16475.397748v1.6875H.875c-.149184 0-.292258.05926-.397748.16475C.371763 3.33274.3125 3.47582.3125 3.625v6c0 .14918.059263.29226.164752.3977.10549.1055.248564.1648.397748.1648h6c.14918 0 .29226-.0593.39775-.1648.10549-.10544.16475-.24852.16475-.3977V7.9375H9.125c.14918 0 .29226-.05926.39775-.16475.10549-.10549.16475-.24857.16475-.39775v-6c0-.14918-.05926-.29226-.16475-.397748C9.41726.871763 9.27418.8125 9.125.8125Zm-2.8125 8.25h-4.875v-4.875h4.875v4.875Zm2.25-2.25h-1.125V3.625c0-.14918-.05926-.29226-.16475-.39775-.10549-.10549-.24857-.16475-.39775-.16475H3.6875v-1.125h4.875v4.875Z"/></svg>
               Copy
             </button>
+            <button class="ai-note-secondary-btn" type="button" data-action="copy-complete">Copy complete context</button>
+            <button class="ai-note-danger-btn" type="button" data-action="remove-comment" ${currentComment ? '' : 'disabled'}>Delete marking</button>
           </div>
         </div>
       `;
@@ -1127,11 +925,23 @@ export default {
       // Copy button
       const copyBtn = panel.querySelector('.ai-note-copy-btn') as HTMLButtonElement;
       const textarea = panel.querySelector('#ai-note-textarea') as HTMLTextAreaElement;
+      bindElementComment(entry, textarea);
 
       copyBtn.addEventListener('click', () => {
         const text = buildCopyText(state.selectedElements, textarea.value);
         handleCopy(copyBtn, text);
       });
+
+      const removeCommentBtn = panel.querySelector('[data-action="remove-comment"]') as HTMLButtonElement | null;
+      if (removeCommentBtn) {
+        removeCommentBtn.addEventListener('click', () => {
+          textarea.value = '';
+          upsertCommentContext(entry, '');
+          removeCommentBtn.disabled = true;
+        });
+      }
+
+      bindCompleteContextActions();
 
       panel.dataset.visible = 'true';
     }
@@ -1314,6 +1124,7 @@ export default {
       // Copy button
       const copyBtn = panel.querySelector('.ai-note-copy-btn') as HTMLButtonElement;
       const textarea = panel.querySelector('#ai-note-textarea') as HTMLTextAreaElement;
+      bindInstructionDraft(textarea);
 
       copyBtn.addEventListener('click', () => {
         const text = buildCopyText(state.selectedElements, textarea.value);
@@ -1328,6 +1139,7 @@ export default {
     function startInspecting() {
       if (!state.selectEnabled) return;
       ensureSourceCache();
+      markCommentedElements();
 
       state.isInspecting = true;
       document.body.classList.add('ai-note-inspecting');
@@ -1416,7 +1228,7 @@ export default {
       let title = 'Runtime DOM element';
       let message = 'This element was likely created or rewritten by client-side JavaScript, so Astro did not attach source metadata to it.';
 
-      if ((window as any).__ai_note_source_cache_late__ && !nearest) {
+      if (window.__ai_note_source_cache_late__ && !nearest) {
         title = 'No cached Astro source metadata';
         message = 'Inspect & Clip could not find source metadata for this element. If this should be Astro-rendered markup, reload the page once so the page-level cache can capture metadata earlier.';
       } else if (root instanceof ShadowRoot) {
@@ -1438,32 +1250,6 @@ export default {
       };
     }
 
-    function buildNoSourceCopyText(element: HTMLElement, diagnostic: NoSourceDiagnostic): string {
-      const lines = [
-        'No Astro source location found.',
-        `Reason: ${diagnostic.title}`,
-        `Detail: ${diagnostic.message}`,
-        `Element: <${element.tagName.toLowerCase()}>`,
-      ];
-
-      const classes = cleanClasses(typeof element.className === 'string' ? element.className : '');
-      if (classes) lines.push(`Classes: ${classes}`);
-      if (diagnostic.domPath) lines.push(`DOM path: ${diagnostic.domPath}`);
-
-      if (diagnostic.nearest) {
-        const file = diagnostic.nearest.file ? toRelativePath(diagnostic.nearest.file) : '(missing file)';
-        const loc = diagnostic.nearest.loc || '(missing loc)';
-        lines.push(`Nearest metadata: ${file}:${loc}`);
-        lines.push(`Nearest element: <${diagnostic.nearest.element.tagName.toLowerCase()}>`);
-      }
-
-      const rawHtml = cleanHtml(element.outerHTML);
-      const htmlSnippet = rawHtml.length > 240 ? rawHtml.slice(0, 237) + '...' : rawHtml;
-      lines.push(`HTML: ${htmlSnippet}`);
-
-      return lines.join('\n');
-    }
-
     function selectElement(element: HTMLElement) {
       clearHover();
 
@@ -1476,18 +1262,28 @@ export default {
 
       const isInherited = resolved !== element;
       element.classList.add('ai-note-selected');
+      const entry = { element, info, isInherited };
+
+      if (isReviewMode) {
+        clearSelection();
+        element.classList.add('ai-note-selected');
+        state.selectedElements = [entry];
+        renderReviewPopover(entry);
+        foldToolbarPanel();
+        return;
+      }
 
       if (state.isMultiSelect) {
         // Multi-select: add to array, keep inspecting
-        state.selectedElements.push({ element, info, isInherited });
+        state.selectedElements.push(entry);
         renderMultiSelectInspecting();
       } else {
-        // Single-select: replace, stop inspecting
+        // Single-select: replace the active element, but keep inspecting so
+        // another page click can collect the next comment immediately.
         clearSelection();
         element.classList.add('ai-note-selected');
-        state.selectedElements = [{ element, info, isInherited }];
-        renderElementInfo({ element, info, isInherited });
-        stopInspecting();
+        state.selectedElements = [entry];
+        renderElementInfo(entry);
       }
     }
 
@@ -1583,9 +1379,23 @@ export default {
     // ─── Event handlers ───────────────────────────────────────
 
     function onMouseMove(e: MouseEvent) {
-      if (!state.isInspecting) return;
       const target = e.target as HTMLElement;
       if (!target || isDevToolbarElement(target)) return;
+      if (reviewPopover.contains(target) || reviewBar.contains(target)) return;
+
+      if (commentActions.contains(target)) {
+        updateCommentActionsPosition();
+        return;
+      }
+
+      const commentedTarget = getCommentedClickTarget(target);
+      if (commentedTarget) {
+        showCommentActions(commentedTarget);
+      } else {
+        hideCommentActions();
+      }
+
+      if (!state.isInspecting) return;
 
       if (target === state.hoverOutlineElement) return;
       clearHover();
@@ -1594,9 +1404,20 @@ export default {
     }
 
     function onClick(e: MouseEvent) {
-      if (!state.isInspecting) return;
       const target = e.target as HTMLElement;
       if (!target || isDevToolbarElement(target)) return;
+      if (reviewPopover.contains(target) || reviewBar.contains(target)) return;
+      if (commentActions.contains(target)) return;
+
+      const commentedTarget = getCommentedClickTarget(target);
+      if (commentedTarget && openCommentEditorForElement(commentedTarget)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      if (!state.isInspecting) return;
 
       e.preventDefault();
       e.stopPropagation();
@@ -1606,7 +1427,10 @@ export default {
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
-        if (state.isInspecting) {
+        if (reviewPopover.dataset.visible === 'true') {
+          hideReviewPopover();
+          renderReviewBar();
+        } else if (state.isInspecting && !isReviewMode) {
           stopInspecting();
           renderPlaceholder();
         } else if (state.selectedElements.length > 0) {
@@ -1616,18 +1440,39 @@ export default {
       }
     }
 
+    const editCommentBtn = commentActions.querySelector('[data-action="edit-comment"]') as HTMLButtonElement;
+    editCommentBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = commentActionTarget;
+      hideCommentActions();
+      if (target) openCommentEditorForElement(target);
+    });
+
+    const deleteCommentBtn = commentActions.querySelector('[data-action="delete-comment"]') as HTMLButtonElement;
+    deleteCommentBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const target = commentActionTarget;
+      if (target) deleteCommentForElement(target);
+    });
+
     // ─── Global listener management ───────────────────────────
 
     function addGlobalListeners() {
       document.addEventListener('mousemove', onMouseMove, true);
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown);
+      window.addEventListener('scroll', updateFloatingReviewUi, true);
+      window.addEventListener('resize', updateFloatingReviewUi);
     }
 
     function removeGlobalListeners() {
       document.removeEventListener('mousemove', onMouseMove, true);
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', updateFloatingReviewUi, true);
+      window.removeEventListener('resize', updateFloatingReviewUi);
     }
 
     addGlobalListeners();
@@ -1636,13 +1481,22 @@ export default {
 
     eventTarget.addEventListener('app-toggled', (event: any) => {
       if (event.detail.state === true) {
-        // App activated — reset state and start inspecting if enabled
-        state.selectEnabled = true;
-        ensureSourceCache();
-        startInspecting();
+        isAppActive = true;
+        startReviewMode();
+        foldToolbarPanel();
       } else {
+        isAppActive = false;
+        if (isFoldingToolbar && isReviewMode) {
+          isFoldingToolbar = false;
+          return;
+        }
+        isFoldingToolbar = false;
         // App deactivated — clean up
-        stopInspecting();
+        if (isReviewMode) {
+          stopReviewMode();
+        } else {
+          stopInspecting();
+        }
         clearSelection();
         renderPlaceholder();
       }
@@ -1664,7 +1518,18 @@ export default {
         addGlobalListeners();
         startInspecting();
       }
+
+      if (state.commentedContexts.length > 0) {
+        markCommentedElements();
+      }
     });
+
+    if (state.commentedContexts.length > 0) {
+      requestAnimationFrame(() => {
+        ensureSourceCache();
+        markCommentedElements();
+      });
+    }
 
     // Do NOT start inspecting here — wait for app-toggled event.
     // Listeners are passive (guard with state.isInspecting) until then.

@@ -1,0 +1,155 @@
+---
+const navItems = ['Overview', 'Scenarios', 'Checklist'];
+---
+
+<header class="demo-header" data-demo-target="header">
+  <a class="demo-mark" href="/" aria-label="Inspect Clip demo home">
+    <span class="demo-mark__icon" aria-hidden="true">
+      <span></span>
+      <span></span>
+    </span>
+    <span>
+      <strong>Inspect & Clip</strong>
+      <small>Demo workbench</small>
+    </span>
+  </a>
+
+  <nav class="demo-nav" aria-label="Demo sections">
+    {
+      navItems.map((item) => (
+        <a href={`#${item.toLowerCase()}`}>{item}</a>
+      ))
+    }
+  </nav>
+</header>
+
+<style>
+  .demo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 24px;
+    padding: 9px;
+    border: 1px solid oklch(100% 0 0 / 0.68);
+    border-radius: 8px;
+    background: oklch(99% 0.006 262 / 0.76);
+    box-shadow: var(--shadow-tight);
+    backdrop-filter: blur(14px);
+  }
+
+  .demo-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    padding: 3px 7px 3px 3px;
+    border-radius: 7px;
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .demo-mark__icon {
+    position: relative;
+    display: inline-flex;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: var(--ink);
+    box-shadow: inset 0 0 0 1px oklch(100% 0 0 / 0.08), var(--shadow-tight);
+  }
+
+  .demo-mark__icon span {
+    position: absolute;
+    width: 19px;
+    height: 15px;
+    border: 2px solid oklch(94% 0.02 291);
+    border-radius: 4px;
+  }
+
+  .demo-mark__icon span:first-child {
+    transform: translate(-4px, -3px);
+  }
+
+  .demo-mark__icon span:last-child {
+    border-color: oklch(79% 0.14 155);
+    transform: translate(4px, 4px);
+  }
+
+  .demo-mark strong,
+  .demo-mark small {
+    display: block;
+  }
+
+  .demo-mark strong {
+    font-size: 15px;
+    letter-spacing: 0;
+    line-height: 1.15;
+  }
+
+  .demo-mark small {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 2px;
+  }
+
+  .demo-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 3px;
+    padding: 4px;
+    border: 1px solid oklch(84% 0.024 264 / 0.72);
+    border-radius: 8px;
+    background: oklch(94% 0.012 264 / 0.72);
+  }
+
+  .demo-nav a {
+    color: oklch(37% 0.038 264);
+    padding: 8px 12px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    text-decoration: none;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  }
+
+  .demo-nav a:hover {
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 0 4px 14px oklch(28% 0.055 264 / 0.08);
+    transform: translateY(-1px);
+  }
+
+  @media (max-width: 860px) {
+    .demo-header {
+      align-items: stretch;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .demo-nav {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .demo-nav a {
+      text-align: center;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .demo-header {
+      padding: 7px;
+    }
+
+    .demo-nav a {
+      padding: 8px 6px;
+      font-size: 12px;
+    }
+  }
+</style>

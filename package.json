@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "demo": "npm run build && cd demo && ../node_modules/.bin/astro dev --host 127.0.0.1",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
