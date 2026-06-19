@@ -1,9 +1,10 @@
 // plugins/astro-inspect-clip/app.ts
 import type { AppState, CommentedContextEntry, NoSourceDiagnostic, SelectedEntry, SourceCandidate } from './types.js';
 import { handleCopy } from './clipboard.js';
+import { findCommentForEntry, getCommentId as getStoredCommentId, isSameCommentSource } from './comment-context.js';
 import { buildCompleteContextText, buildCopyText, buildNoSourceCopyText } from './copy-text.js';
 import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
-import { bindInstructionDraft, readCommentContexts, readInstructionDraft, writeCommentContexts } from './storage.js';
+import { bindInstructionDraft, readCommentContexts, readInstructionDraft, readReviewState, writeCommentContexts, writeReviewState } from './storage.js';
 import { ensureSourceCache, getElementInfo, readSourceAnnotation, toRelativePath } from './source-cache.js';
 import { injectGlobalStyles, injectPanelStyles } from './styles.js';
 
@@ -31,6 +32,7 @@ export default {
     let reviewPopoverDragOffset: { x: number; y: number } | null = null;
     let reviewBarManualPosition: { left: number; top: number } | null = null;
     let reviewBarDragOffset: { x: number; y: number } | null = null;
+    const commentedElementsById = new Map<string, HTMLElement>();
 
     ensureSourceCache();
 
@@ -172,12 +174,7 @@ export default {
     }
 
     function getCommentId(entry: SelectedEntry): string {
-      return [
-        entry.info.filePath,
-        entry.info.location,
-        entry.element.tagName.toLowerCase(),
-        getElementFingerprint(entry.element),
-      ].join('::');
+      return getStoredCommentId(entry, getElementFingerprint(entry.element));
     }
 
     function toCommentedContextEntry(entry: SelectedEntry, instruction: string): CommentedContextEntry {
@@ -197,14 +194,20 @@ export default {
     }
 
     function getCommentForEntry(entry: SelectedEntry): CommentedContextEntry | undefined {
-      const id = getCommentId(entry);
-      return state.commentedContexts.find((context) => context.id === id);
+      return findCommentForEntry(
+        state.commentedContexts,
+        entry,
+        getElementFingerprint(entry.element),
+      );
     }
 
     function upsertCommentContext(entry: SelectedEntry, instruction: string) {
       const id = getCommentId(entry);
       const trimmedInstruction = instruction.trim();
-      const existingIndex = state.commentedContexts.findIndex((context) => context.id === id);
+      const existingComment = getCommentForEntry(entry);
+      const existingIndex = existingComment
+        ? state.commentedContexts.findIndex((context) => context.id === existingComment.id)
+        : -1;
 
       if (trimmedInstruction) {
         const nextContext = toCommentedContextEntry(entry, trimmedInstruction);
@@ -216,11 +219,13 @@ export default {
           );
           state.commentedContexts.push(nextContext);
         }
+        commentedElementsById.set(id, entry.element);
         entry.element.classList.add('ai-note-commented');
       } else {
         state.commentedContexts = state.commentedContexts.filter(
           (context) => context.id !== id && (context.instanceKey || !isSameCommentSource(context, entry)),
         );
+        commentedElementsById.delete(id);
         entry.element.classList.remove('ai-note-commented');
       }
 
@@ -231,10 +236,23 @@ export default {
       renderReviewBar();
     }
 
-    function isSameCommentSource(context: CommentedContextEntry, entry: SelectedEntry): boolean {
-      return context.filePath === entry.info.filePath
-        && context.location === entry.info.location
-        && context.tagName === entry.element.tagName.toLowerCase();
+    function removeCommentContext(entry: SelectedEntry) {
+      const id = getCommentId(entry);
+      const existingComment = getCommentForEntry(entry);
+      state.commentedContexts = state.commentedContexts.filter(
+        (context) =>
+          context.id !== id
+          && context.id !== existingComment?.id
+          && (context.instanceKey || !isSameCommentSource(context, entry)),
+      );
+      commentedElementsById.delete(id);
+      if (existingComment) commentedElementsById.delete(existingComment.id);
+      entry.element.classList.remove('ai-note-commented');
+
+      writeCommentContexts(state.commentedContexts);
+      markCommentedElements();
+      updateContextControls();
+      renderReviewBar();
     }
 
     function clearCommentContexts() {
@@ -248,15 +266,43 @@ export default {
     function findElementsForComment(context: CommentedContextEntry): HTMLElement[] {
       const matches: HTMLElement[] = [];
       const sourceCache = window.__ai_note_source_cache__;
+      const hasMatch = (element: HTMLElement) => matches.includes(element);
+      const canMatchElement = (element: HTMLElement) => {
+        return element.isConnected
+          && !isDevToolbarElement(element)
+          && element.tagName.toLowerCase() === context.tagName;
+      };
+      const addMatch = (element: HTMLElement) => {
+        if (canMatchElement(element) && !hasMatch(element)) matches.push(element);
+      };
+
+      const liveElement = commentedElementsById.get(context.id);
+      if (liveElement) addMatch(liveElement);
+
+      if (context.instanceKey) {
+        getPageElements().forEach((element) => {
+          if (getElementFingerprint(element) === context.instanceKey) {
+            addMatch(element);
+          }
+        });
+      }
+
+      getPageElements().forEach((element) => {
+        if (!canMatchElement(element)) return;
+        const source = resolveCommentSource(element);
+        if (source.file === context.filePath && source.loc === context.location) {
+          addMatch(element);
+        }
+      });
 
       if (sourceCache) {
         for (const [element, source] of sourceCache.entries()) {
           if (
-            source.file === context.filePath
+            canMatchElement(element)
+            && source.file === context.filePath
             && source.loc === context.location
-            && element.tagName.toLowerCase() === context.tagName
           ) {
-            matches.push(element);
+            addMatch(element);
           }
         }
       }
@@ -269,21 +315,64 @@ export default {
           if (
             source.file === context.filePath
             && source.loc === context.location
-            && element.tagName.toLowerCase() === context.tagName
-            && !matches.includes(element)
           ) {
-            matches.push(element);
+            addMatch(element);
           }
         });
 
       if (!context.instanceKey) return matches;
 
-      return matches.filter((element) => getElementFingerprint(element) === context.instanceKey);
+      const exactMatches = matches.filter((element) => getElementFingerprint(element) === context.instanceKey);
+      return exactMatches.length > 0 ? exactMatches : matches;
+    }
+
+    function resolveCommentSource(element: HTMLElement) {
+      let current: HTMLElement | null = element;
+      let file = '';
+      let loc = '';
+      let distance = 0;
+
+      while (current) {
+        if (isDevToolbarElement(current)) break;
+
+        const source = readSourceAnnotation(current);
+        const tagName = current.tagName.toLowerCase();
+        const isDocumentShell = distance > 0 && ['body', 'html'].includes(tagName);
+
+        if (!loc && source.loc && !isDocumentShell) {
+          loc = source.loc;
+          file = source.file;
+        } else if (loc && !file && source.file) {
+          file = source.file;
+        }
+
+        if (file && loc) break;
+
+        current = getTraversalParent(current);
+        distance++;
+      }
+
+      return { file, loc };
+    }
+
+    function getPageElements(): HTMLElement[] {
+      const elements: HTMLElement[] = [];
+      if (document.documentElement instanceof HTMLElement) elements.push(document.documentElement);
+      if (document.body instanceof HTMLElement && document.body !== document.documentElement) {
+        elements.push(document.body);
+        document.body.querySelectorAll('*').forEach((element) => {
+          if (element instanceof HTMLElement) elements.push(element);
+        });
+      }
+      return elements;
     }
 
     function markCommentedElements() {
       clearCommentedElementMarks();
+      addCommentedElementMarks();
+    }
 
+    function addCommentedElementMarks() {
       for (const context of state.commentedContexts) {
         const [element] = findElementsForComment(context);
         element?.classList.add('ai-note-commented');
@@ -297,6 +386,20 @@ export default {
           element.classList.remove('ai-note-commented');
           element.classList.remove('ai-note-commented-hover');
         });
+    }
+
+    function showCommentedElementMarks(options: { reset?: boolean } = {}) {
+      window.__ai_note_show_comment_marks__ = true;
+      if (options.reset === false) {
+        addCommentedElementMarks();
+      } else {
+        markCommentedElements();
+      }
+    }
+
+    function hideCommentedElementMarks() {
+      window.__ai_note_show_comment_marks__ = false;
+      clearCommentedElementMarks();
     }
 
     function showCommentActions(element: HTMLElement) {
@@ -354,7 +457,7 @@ export default {
       };
       const removedId = getCommentId(entry);
 
-      upsertCommentContext(entry, '');
+      removeCommentContext(entry);
       hideCommentActions();
 
       const selectedEntry = state.selectedElements[0];
@@ -603,7 +706,7 @@ export default {
         renderReviewBar();
       });
       deleteBtn.addEventListener('click', () => {
-        upsertCommentContext(entry, '');
+        removeCommentContext(entry);
         hideReviewPopover();
         renderReviewBar();
       });
@@ -634,7 +737,7 @@ export default {
       const count = state.commentedContexts.length;
       const hasOpenPopover = reviewPopover.dataset.visible === 'true';
 
-      if (!isReviewMode && count === 0 && !hasOpenPopover) {
+      if (!isAppActive && !isReviewMode && count === 0 && !hasOpenPopover) {
         reviewBar.dataset.visible = 'false';
         reviewBar.setAttribute('aria-hidden', 'true');
         reviewBar.innerHTML = '';
@@ -683,11 +786,14 @@ export default {
         clearContextBtn.addEventListener('click', () => {
           clearCommentContexts();
           hideReviewPopover();
+          renderReviewBar();
         });
       }
 
       const closeBarBtn = reviewBar.querySelector('[data-action="close-review-bar"]') as HTMLButtonElement;
       closeBarBtn.addEventListener('click', () => {
+        writeReviewState('closed');
+        isAppActive = false;
         endReviewBarDrag();
         isReviewMode = false;
         stopInspecting();
@@ -696,7 +802,7 @@ export default {
         reviewBar.dataset.visible = 'false';
         reviewBar.setAttribute('aria-hidden', 'true');
         reviewBar.innerHTML = '';
-        markCommentedElements();
+        hideCommentedElementMarks();
       });
 
       const dragBarHandle = reviewBar.querySelector('.ai-note-review-bar-drag') as HTMLElement;
@@ -729,22 +835,37 @@ export default {
     }
 
     function startReviewMode() {
+      writeReviewState('recording');
       isReviewMode = true;
       state.selectEnabled = true;
       state.isMultiSelect = false;
       ensureSourceCache();
-      markCommentedElements();
+      showCommentedElementMarks();
       state.isInspecting = true;
       document.body.classList.add('ai-note-inspecting');
       renderReviewBar();
     }
 
     function stopReviewMode() {
+      persistOpenReviewComment();
+      writeReviewState('paused');
       isReviewMode = false;
       stopInspecting();
       hideCommentActions();
+      window.__ai_note_show_comment_marks__ = true;
       renderReviewBar();
-      markCommentedElements();
+    }
+
+    function persistOpenReviewComment() {
+      if (!activeReviewEntry || reviewPopover.dataset.visible !== 'true') return;
+
+      const textarea = reviewPopover.querySelector('.ai-note-review-textarea') as HTMLTextAreaElement | null;
+      if (!textarea) return;
+
+      const hasExistingComment = Boolean(getCommentForEntry(activeReviewEntry));
+      if (textarea.value.trim() || hasExistingComment) {
+        upsertCommentContext(activeReviewEntry, textarea.value);
+      }
     }
 
     function bindElementComment(entry: SelectedEntry, textarea: HTMLTextAreaElement) {
@@ -951,7 +1072,7 @@ export default {
       if (removeCommentBtn) {
         removeCommentBtn.addEventListener('click', () => {
           textarea.value = '';
-          upsertCommentContext(entry, '');
+          removeCommentContext(entry);
           removeCommentBtn.disabled = true;
         });
       }
@@ -1505,20 +1626,23 @@ export default {
         startReviewMode();
         foldToolbarPanel();
       } else {
-        isAppActive = false;
         if (isFoldingToolbar && isReviewMode) {
           isFoldingToolbar = false;
           return;
         }
         isFoldingToolbar = false;
-        // App deactivated — clean up
         if (isReviewMode) {
           stopReviewMode();
         } else {
           stopInspecting();
+          isAppActive = readReviewState() !== 'closed';
+          if (isAppActive) {
+            showCommentedElementMarks({ reset: false });
+            renderReviewBar();
+          }
         }
         clearSelection();
-        renderPlaceholder();
+        if (!isAppActive) renderPlaceholder();
       }
     });
 
@@ -1539,15 +1663,25 @@ export default {
         startInspecting();
       }
 
-      if (state.commentedContexts.length > 0) {
-        markCommentedElements();
+      if (state.commentedContexts.length > 0 && window.__ai_note_show_comment_marks__) {
+        showCommentedElementMarks();
       }
     });
 
-    if (state.commentedContexts.length > 0) {
+    const initialReviewState = readReviewState();
+    if (initialReviewState === 'recording') {
+      isAppActive = true;
+      startReviewMode();
+    } else if (initialReviewState === 'paused') {
+      isAppActive = true;
+      isReviewMode = false;
+      stopInspecting();
+      showCommentedElementMarks();
+      renderReviewBar();
+    } else if (state.commentedContexts.length > 0 && window.__ai_note_show_comment_marks__) {
       requestAnimationFrame(() => {
         ensureSourceCache();
-        markCommentedElements();
+        showCommentedElementMarks();
       });
     }
 

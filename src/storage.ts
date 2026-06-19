@@ -2,36 +2,66 @@ import type { CommentedContextEntry } from './types.js';
 
 const INSTRUCTION_DRAFT_PREFIX = 'astro-inspect-clip:instruction-draft:v1';
 const COMMENT_CONTEXT_PREFIX = 'astro-inspect-clip:comment-context:v1';
+const REVIEW_STATE_PREFIX = 'astro-inspect-clip:review-state:v1';
 
-function getScopedStorageKey(prefix: string): string {
-  const root = window.__astro_dev_toolbar__?.root;
-  const scope = root ?? window.location.origin;
+export type ReviewState = 'closed' | 'paused' | 'recording';
+
+function getScopedStorageKey(prefix: string, scope: string): string {
   return `${prefix}:${scope}:${window.location.pathname}`;
 }
 
-function getInstructionDraftKey(): string {
-  return getScopedStorageKey(INSTRUCTION_DRAFT_PREFIX);
+function getStorageScopes(): string[] {
+  return Array
+    .from(new Set([
+      window.__astro_dev_toolbar__?.root,
+      window.location.origin,
+    ]))
+    .filter((scope): scope is string => Boolean(scope));
 }
 
-function getCommentContextKey(): string {
-  return getScopedStorageKey(COMMENT_CONTEXT_PREFIX);
+function getStorageKeys(prefix: string): string[] {
+  return Array.from(new Set([
+    ...getStorageScopes().map((scope) => getScopedStorageKey(prefix, scope)),
+    ...findStoredStorageKeys(prefix),
+  ]));
+}
+
+function findStoredStorageKeys(prefix: string): string[] {
+  const keys: string[] = [];
+  const storagePrefix = `${prefix}:`;
+  const pathnameSuffix = `:${window.location.pathname}`;
+
+  for (let i = 0; i < window.sessionStorage.length; i++) {
+    const key = window.sessionStorage.key(i);
+    if (key?.startsWith(storagePrefix) && key.endsWith(pathnameSuffix)) {
+      keys.push(key);
+    }
+  }
+
+  return keys;
 }
 
 export function readInstructionDraft(): string {
   try {
-    return window.sessionStorage.getItem(getInstructionDraftKey()) ?? '';
+    for (const key of getStorageKeys(INSTRUCTION_DRAFT_PREFIX)) {
+      const value = window.sessionStorage.getItem(key);
+      if (value) return value;
+    }
   } catch {
-    return '';
+    // Ignore unavailable storage.
   }
+
+  return '';
 }
 
 export function writeInstructionDraft(value: string): void {
   try {
-    const key = getInstructionDraftKey();
-    if (value) {
-      window.sessionStorage.setItem(key, value);
-    } else {
-      window.sessionStorage.removeItem(key);
+    for (const key of getStorageKeys(INSTRUCTION_DRAFT_PREFIX)) {
+      if (value) {
+        window.sessionStorage.setItem(key, value);
+      } else {
+        window.sessionStorage.removeItem(key);
+      }
     }
   } catch {}
 }
@@ -45,23 +75,61 @@ export function bindInstructionDraft(textarea: HTMLTextAreaElement): void {
 
 export function readCommentContexts(): CommentedContextEntry[] {
   try {
-    const raw = window.sessionStorage.getItem(getCommentContextKey());
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isCommentedContextEntry);
+    for (const key of getStorageKeys(COMMENT_CONTEXT_PREFIX)) {
+      const raw = window.sessionStorage.getItem(key);
+      if (!raw) continue;
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) continue;
+
+      const entries = parsed
+        .filter(isCommentedContextEntry)
+        .filter((entry) => entry.instruction.trim());
+      if (entries.length > 0) return entries;
+    }
   } catch {
-    return [];
+    // Ignore unavailable or malformed storage.
   }
+
+  return [];
 }
 
 export function writeCommentContexts(entries: CommentedContextEntry[]): void {
   try {
-    const key = getCommentContextKey();
-    if (entries.length > 0) {
-      window.sessionStorage.setItem(key, JSON.stringify(entries));
-    } else {
-      window.sessionStorage.removeItem(key);
+    const persistedEntries = entries.filter((entry) => entry.instruction.trim());
+    const value = JSON.stringify(persistedEntries);
+
+    for (const key of getStorageKeys(COMMENT_CONTEXT_PREFIX)) {
+      if (persistedEntries.length > 0) {
+        window.sessionStorage.setItem(key, value);
+      } else {
+        window.sessionStorage.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+export function readReviewState(): ReviewState {
+  try {
+    for (const key of getStorageKeys(REVIEW_STATE_PREFIX)) {
+      const value = window.sessionStorage.getItem(key);
+      if (value === 'paused' || value === 'recording') return value;
+    }
+  } catch {
+    // Ignore unavailable storage.
+  }
+
+  return 'closed';
+}
+
+export function writeReviewState(value: ReviewState): void {
+  try {
+    for (const key of getStorageKeys(REVIEW_STATE_PREFIX)) {
+      if (value === 'closed') {
+        window.sessionStorage.removeItem(key);
+      } else {
+        window.sessionStorage.setItem(key, value);
+      }
     }
   } catch {}
 }

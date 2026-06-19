@@ -95,9 +95,11 @@ export function buildCompleteContextText(entries: CommentedContextEntry[]): stri
     if (entry.classes) lines.push(`Classes: ${entry.classes}`);
     lines.push(`HTML: ${entry.htmlSnippet}`);
     if (entry.isInherited) lines.push('(Source location resolved from parent)');
-    lines.push('');
-    lines.push('Instruction:');
-    lines.push(entry.instruction.trim());
+    if (entry.instruction.trim()) {
+      lines.push('');
+      lines.push('Instruction:');
+      lines.push(entry.instruction.trim());
+    }
   });
 
   return lines.join('\n');

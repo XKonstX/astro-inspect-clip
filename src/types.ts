@@ -64,6 +64,7 @@ declare global {
   interface Window {
     __ai_note_source_cache__?: Map<HTMLElement, SourceAnnotation>;
     __ai_note_source_cache_late__?: boolean;
+    __ai_note_show_comment_marks__?: boolean;
     __astro_dev_toolbar__?: {
       root?: string;
     };
