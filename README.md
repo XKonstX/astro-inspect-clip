@@ -1,12 +1,13 @@
 <div align="center">
 
-# 🔍 astro-inspect-clip
+# astro-inspect-clip
 
-**Click any element. Get the source. Copy it wherever you want.**
+**Inspect Astro-rendered UI, collect source context, and copy focused instructions.**
 
-An [Astro](https://astro.build) dev toolbar app that turns your browser into a
-source-aware inspector — grab file paths, line numbers, tag info, and HTML snippets
-with a single click, then copy everything straight to your clipboard.
+An Astro dev toolbar app for teams that use the browser as the fastest way to
+point at UI work. Click an element, resolve its source file and line, add an
+instruction, and copy a clean context block for your editor, assistant, review,
+or issue tracker.
 
 [![npm version](https://img.shields.io/npm/v/astro-inspect-clip?color=BC52EE&label=npm&logo=npm)](https://www.npmjs.com/package/astro-inspect-clip)
 [![npm downloads](https://img.shields.io/npm/dm/astro-inspect-clip?color=BC52EE)](https://www.npmjs.com/package/astro-inspect-clip)
@@ -17,62 +18,13 @@ with a single click, then copy everything straight to your clipboard.
 
 ---
 
-<!-- TODO: Replace with an actual screenshot or GIF
-![astro-inspect-clip demo](https://github.com/XKonstX/astro-inspect-clip/raw/main/docs/demo.gif)
--->
-
-## Why?
-
-Ever clicked around your Astro site and wondered *"where does this component come from?"* —
-then opened DevTools, searched the DOM tree, and still couldn't find the source file?
-
-**astro-inspect-clip** fixes that. It hooks into Astro's built-in source annotations
-(the ones Astro's own Audit toolbar removes) and keeps them alive, so you can:
-
-- 🔎 **Inspect** — hover to highlight, click to capture source file + line number
-- 📋 **Copy** — file path, element tag, classes, and HTML snippet land in your clipboard
-- 📝 **Add instructions** — write what you want changed, then paste the whole thing anywhere
-- ✨ **Open in Editor** — jump straight to the source line in VS Code (or your editor of choice)
-- 🏷️ **Multi-select** — select several elements and copy them grouped by file
-
-> **Dev-only.** Zero overhead in production. Nothing ships to your users.
-
----
-
-## Versions
-
-### 1.0.5
-
-- Stops showing the global **Reload required** screen when the toolbar app starts
-- Keeps inspection available and reports missing source metadata only for the
-  selected element that actually needs fallback context
-- Softens the late-cache diagnostic so a page reload is suggested only when it is useful
-
-### 1.0.4
-
-- Refines source metadata caching for pages loaded before toolbar hot reloads
-- Adds clearer fallback diagnostics when source metadata cannot be resolved
-
-### 1.0.3
-
-- Caches both `data-astro-source-file` and `data-astro-source-loc`, even when
-  only one attribute is present on an element
-- Resolves the nearest source location while inheriting the file path from the
-  matching ancestor when Astro splits that metadata across elements
-- Prevents page-level click handlers from racing the inspector click
-- Fixes the fallback panel markup shown when no source info is available
-
----
-
 ## Install
 
 ```bash
 npm install astro-inspect-clip
 ```
 
-## Setup
-
-Add the integration to your `astro.config.mjs`:
+Add the integration to `astro.config.mjs`:
 
 ```js
 import { defineConfig } from 'astro/config';
@@ -85,115 +37,146 @@ export default defineConfig({
 });
 ```
 
-That's it. Start your dev server:
+Start Astro in development mode and open the Astro dev toolbar.
 
 ```bash
 npm run dev
 ```
 
-Open the browser, click the **Inspect & Clip** icon in Astro's dev toolbar,
-and start clicking elements.
+`astro-inspect-clip` is dev-only. It injects the toolbar app and source-cache
+script only for the development server; nothing is added to production output.
+
+## Version Lines
+
+Version 2 is the active line.
+
+```bash
+npm install astro-inspect-clip@2
+```
+
+Version 1 remains installable for projects that want the older behavior.
+
+```bash
+npm install astro-inspect-clip@1
+```
+
+Publishing `2.0.0` does not remove old npm versions. npm keeps historical
+versions immutable, so projects can pin `astro-inspect-clip@1.x` while new
+projects can use `@2`.
+
+## What's New In 2.0
+
+- Review mode for collecting multiple commented UI contexts without keeping the
+  toolbar panel open.
+- Floating review controls with start/stop, clear, and complete-context copy.
+- Per-element comment popover for saving instructions directly on inspected UI.
+- Commented element highlighting that survives toolbar open/close and page swaps.
+- Instance-aware matching for repeated Astro components rendered from the same
+  source line.
+- Cleaner fallback diagnostics when runtime DOM has no Astro source metadata.
+- Internal module split for source cache, storage, copy text, DOM utilities,
+  styles, and clipboard behavior.
+- Local demo app for validating nested components, repeated cards, grouped
+  selection, and runtime-only markup.
+
+## Common Workflows
+
+### Single Element
+
+1. Open the Astro dev toolbar.
+2. Start Inspect & Clip.
+3. Click an element in the page.
+4. Add an instruction.
+5. Copy the generated context.
+
+Example output:
+
+```text
+File: src/components/Header.astro:42:5
+Element: <nav>
+Classes: site-nav, is-sticky
+HTML: <nav class="site-nav is-sticky">...</nav>
+Instruction:
+Make the navigation collapse below 768px.
+```
+
+### Review Context
+
+Use review mode when you want to collect several targeted comments before
+copying everything at once.
+
+1. Start Inspect & Clip from the dev toolbar.
+2. Click an element.
+3. Write a note in the floating comment popover.
+4. Repeat for other elements.
+5. Use **Copy context** from the floating review bar.
+
+The copied output groups every saved comment into one structured block.
+
+### Multi-Select
+
+Enable **Multi** mode when one instruction applies to several elements.
+Selected elements are copied together and grouped by source file where useful.
 
 ## Demo
 
-This repo includes a small Astro demo site for local plugin testing:
+This repository includes a local Astro demo site.
 
 ```bash
 npm run demo
 ```
 
-The script builds the toolbar app, starts the demo Astro dev server, and loads
-the local integration from `dist`. Open the printed localhost URL, activate
-**Inspect & Clip** in Astro's dev toolbar, then click the page sections,
-scenario cards, checklist rows, and runtime badge.
+The demo builds the toolbar app, starts the Astro dev server, and loads the
+local integration from `dist`. Use it to check:
 
----
+- repeated component cards with the same Astro source line,
+- nested element source inheritance,
+- multi-select output,
+- review context highlighting,
+- runtime DOM fallback diagnostics.
 
-## How it works
+## How It Works
 
-Astro adds `data-astro-source-file` and `data-astro-source-loc` attributes to
-elements during development. The built-in Audit toolbar removes them — this
-plugin captures both pieces of metadata **before** they disappear using a
-MutationObserver cache.
+Astro annotates development HTML with `data-astro-source-file` and
+`data-astro-source-loc`. Astro's own Audit toolbar can remove those attributes
+after startup, so this integration injects a page-level cache early during dev.
 
-When you click an element, the plugin:
+When an element is selected, Inspect & Clip:
 
-1. Resolves the source file and line number, walking up the DOM if needed
-2. Shows a panel with file path, tag, classes, and HTML snippet
-3. Lets you write an optional instruction
-4. Copies everything to clipboard in a clean, structured format
-
-### What gets copied
-
-```
-File: src/components/Header.astro:42
-Element: <nav>
-Classes: main-nav, sticky
-HTML: <nav class="main-nav sticky">...</nav>
-
-Instruction:
-Make the nav collapse into a hamburger menu on mobile
-```
-
-### Multi-select
-
-Toggle **Multi** mode to grab several elements at once. Hit **Done**, write your
-instruction, and copy everything grouped by file — perfect for multi-component changes.
-
----
-
-## Use cases
-
-| Scenario | How it helps |
-|---|---|
-| **"Where is this component?"** | Click → see the exact file and line |
-| **Working with an AI assistant** | Click → add instruction → paste into ChatGPT, Cursor, Copilot, etc. |
-| **Code review** | Copy element source + context and drop it into a PR comment |
-| **Debugging layout issues** | Inspect the exact HTML output with source location |
-| **Onboarding** | New dev? Click around to learn the codebase structure |
-| **Pair programming** | Share element context without screen sharing |
-
----
-
-## Features at a glance
-
-- 🔍 **Inspect mode** — hover highlights, click captures
-- 📋 **One-click copy** — structured format ready to paste
-- 🏷️ **Multi-select** — group multiple elements by file
-- 🔗 **Open in Editor** — jump to source line in VS Code
-- 🧩 **Astro-native** — lives inside the built-in dev toolbar
-- 🚀 **Zero production cost** — only activates in dev mode
-- 🎯 **Smart resolution** — walks up the DOM to find source info
-- ⌨️ **Keyboard friendly** — press Escape to dismiss
-
----
+1. reads cached Astro source metadata,
+2. walks up the DOM when child elements need to inherit source context,
+3. filters plugin-owned highlight classes out of copied HTML,
+4. stores review comments in page-scoped session storage,
+5. uses an instance fingerprint so repeated components are not confused.
 
 ## Requirements
 
-- Astro **4.0+**, **5.0+**, or **6.0+**
-- Node.js **18+**
+- Astro 4, 5, or 6
+- Node.js 18+
 
-## Configuration
+## API
 
-No configuration needed. The plugin activates automatically when you run the dev server.
+No configuration is required.
 
----
+```js
+astroInspectClip()
+```
 
-## Comparison with Astro's built-in Audit toolbar
+## Development
 
-| | Astro Audit | astro-inspect-clip |
-|---|---|---|
-| See source file & line | ✅ | ✅ |
-| Copy element info | ❌ | ✅ |
-| Add custom instructions | ❌ | ✅ |
-| Multi-select | ❌ | ✅ |
-| Open in Editor | ❌ | ✅ |
-| Structured clipboard output | ❌ | ✅ |
+```bash
+npm install
+npm run build
+npm run demo
+```
 
-Think of it as the Audit toolbar's more opinionated sibling — built for
-developers who want to *do something* with what they inspect.
+Useful checks before publishing:
 
----
+```bash
+npm run build
+npx tsc --noEmit
+npm publish --dry-run
+```
 
 ## License
 
@@ -202,8 +185,6 @@ developers who want to *do something* with what they inspect.
 ---
 
 <div align="center">
-
-**Made with ☕ for the Astro community**
 
 [Report a bug](https://github.com/XKonstX/astro-inspect-clip/issues) ·
 [Request a feature](https://github.com/XKonstX/astro-inspect-clip/issues) ·
