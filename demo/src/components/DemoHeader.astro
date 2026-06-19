@@ -1,5 +1,10 @@
 ---
-const navItems = ['Overview', 'Scenarios', 'Checklist'];
+const currentPath = Astro.url.pathname.replace(/\/$/, '') || '/';
+const navItems = [
+  { href: '/', label: 'Home' },
+  { href: '/workflow', label: 'Workflow' },
+  { href: '/settings', label: 'Settings' },
+];
 ---
 
 <header class="demo-header" data-demo-target="header">
@@ -17,7 +22,9 @@ const navItems = ['Overview', 'Scenarios', 'Checklist'];
   <nav class="demo-nav" aria-label="Demo sections">
     {
       navItems.map((item) => (
-        <a href={`#${item.toLowerCase()}`}>{item}</a>
+        <a href={item.href} aria-current={currentPath === item.href.replace(/\/$/, '') ? 'page' : undefined}>
+          {item.label}
+        </a>
       ))
     }
   </nav>
@@ -123,6 +130,12 @@ const navItems = ['Overview', 'Scenarios', 'Checklist'];
     color: var(--ink);
     box-shadow: 0 4px 14px oklch(28% 0.055 264 / 0.08);
     transform: translateY(-1px);
+  }
+
+  .demo-nav a[aria-current="page"] {
+    background: var(--ink);
+    color: var(--paper);
+    box-shadow: 0 8px 20px oklch(28% 0.055 264 / 0.14);
   }
 
   @media (max-width: 860px) {

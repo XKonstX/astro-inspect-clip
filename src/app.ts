@@ -402,6 +402,22 @@ export default {
       clearCommentedElementMarks();
     }
 
+    function refreshPageContext() {
+      state.commentedContexts = readCommentContexts();
+      commentedElementsById.clear();
+      hideReviewPopover();
+      hideCommentActions();
+      clearSelection();
+      clearCommentedElementMarks();
+
+      if (isAppActive || readReviewState() !== 'closed') {
+        window.__ai_note_show_comment_marks__ = true;
+        showCommentedElementMarks();
+      }
+
+      renderReviewBar();
+    }
+
     function showCommentActions(element: HTMLElement) {
       if (commentActionTarget && commentActionTarget !== element) {
         commentActionTarget.classList.remove('ai-note-commented-hover');
@@ -736,6 +752,13 @@ export default {
     function renderReviewBar() {
       const count = state.commentedContexts.length;
       const hasOpenPopover = reviewPopover.dataset.visible === 'true';
+
+      if (!isAppActive && readReviewState() === 'closed' && !hasOpenPopover) {
+        reviewBar.dataset.visible = 'false';
+        reviewBar.setAttribute('aria-hidden', 'true');
+        reviewBar.innerHTML = '';
+        return;
+      }
 
       if (!isAppActive && !isReviewMode && count === 0 && !hasOpenPopover) {
         reviewBar.dataset.visible = 'false';
@@ -1653,19 +1676,12 @@ export default {
       if (!document.getElementById('ai-note-global-styles')) {
         document.head.appendChild(globalStyle);
       }
-      // Only re-add listeners if the plugin is currently active
-      if (state.isInspecting || state.selectedElements.length > 0) {
-        removeGlobalListeners();
-        stopInspecting();
-        clearSelection();
-        renderPlaceholder();
-        addGlobalListeners();
-        startInspecting();
-      }
+      removeGlobalListeners();
+      stopInspecting();
+      addGlobalListeners();
+      refreshPageContext();
 
-      if (state.commentedContexts.length > 0 && window.__ai_note_show_comment_marks__) {
-        showCommentedElementMarks();
-      }
+      if (isReviewMode) startInspecting();
     });
 
     const initialReviewState = readReviewState();

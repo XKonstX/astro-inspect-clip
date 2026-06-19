@@ -1,0 +1,189 @@
+---
+import DemoHeader from '../components/DemoHeader.astro';
+
+const settings = [
+  { label: 'Review state', value: 'Persists across routes' },
+  { label: 'Comment context', value: 'Scoped per page' },
+  { label: 'Copy context', value: 'Current route only' },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings Route | Inspect Clip Demo</title>
+  </head>
+  <body>
+    <main class="page-shell">
+      <DemoHeader />
+
+      <section class="settings-shell" data-demo-target="settings-shell">
+        <div class="settings-copy">
+          <p class="eyebrow">Route test</p>
+          <h1>Settings page</h1>
+          <p>
+            This page has different source targets from the home and workflow
+            routes, so page-scoped comments are easy to verify.
+          </p>
+        </div>
+
+        <div class="settings-list" aria-label="Settings route targets">
+          {
+            settings.map((item, index) => (
+              <button class="settings-row" type="button" data-demo-target={`settings-row-${index + 1}`}>
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <strong>{item.label}</strong>
+                <small>{item.value}</small>
+              </button>
+            ))
+          }
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
+
+<style>
+  :root {
+    color-scheme: light;
+    --page: oklch(96% 0.012 262);
+    --paper: oklch(99% 0.006 262);
+    --ink: oklch(20% 0.035 264);
+    --muted: oklch(49% 0.032 264);
+    --line: oklch(86% 0.022 264);
+    --violet: oklch(52% 0.19 291);
+    --green: oklch(57% 0.14 155);
+    --amber: oklch(67% 0.15 72);
+    --shadow-soft: 0 22px 60px oklch(28% 0.055 264 / 0.14);
+    --shadow-tight: 0 10px 30px oklch(28% 0.055 264 / 0.1);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background:
+      linear-gradient(90deg, oklch(88% 0.018 264 / 0.45) 1px, transparent 1px),
+      linear-gradient(0deg, oklch(88% 0.018 264 / 0.45) 1px, transparent 1px),
+      linear-gradient(145deg, var(--page), oklch(97% 0.016 72));
+    background-size: 44px 44px, 44px 44px, auto;
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+
+  button,
+  a {
+    font: inherit;
+  }
+
+  .page-shell {
+    width: min(1180px, calc(100% - 32px));
+    margin: 0 auto;
+    padding: 18px 0 72px;
+  }
+
+  .settings-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+    gap: 22px;
+    margin-top: 28px;
+    align-items: start;
+  }
+
+  .settings-copy,
+  .settings-list {
+    border: 1px solid oklch(100% 0 0 / 0.66);
+    border-radius: 8px;
+    background: var(--paper);
+    box-shadow: var(--shadow-tight);
+  }
+
+  .settings-copy {
+    padding: 30px;
+  }
+
+  .eyebrow {
+    margin: 0 0 12px;
+    color: var(--amber);
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    max-width: 10ch;
+    margin: 0 0 16px;
+    font-size: clamp(42px, 7vw, 82px);
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+
+  .settings-copy p:last-child {
+    max-width: 58ch;
+    margin: 0;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.7;
+  }
+
+  .settings-list {
+    display: grid;
+    gap: 1px;
+    overflow: hidden;
+    background: var(--line);
+  }
+
+  .settings-row {
+    display: grid;
+    grid-template-columns: 48px 1fr auto;
+    gap: 14px;
+    align-items: center;
+    min-height: 84px;
+    padding: 18px;
+    border: 0;
+    background: var(--paper);
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .settings-row span {
+    color: var(--amber);
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  .settings-row strong {
+    font-size: 18px;
+  }
+
+  .settings-row small {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .settings-row:hover {
+    background: oklch(98% 0.012 72);
+  }
+
+  @media (max-width: 760px) {
+    .settings-shell {
+      grid-template-columns: 1fr;
+    }
+
+    .settings-row {
+      grid-template-columns: 36px 1fr;
+    }
+
+    .settings-row small {
+      grid-column: 2;
+    }
+  }
+</style>

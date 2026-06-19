@@ -204,13 +204,13 @@ const CACHE_SCRIPT = `
 
   function readReviewState() {
     try {
-      const storagePrefix = REVIEW_STATE_PREFIX + ':';
-      const pathnameSuffix = ':' + window.location.pathname;
+      const scopes = Array.from(new Set([
+        window.__astro_dev_toolbar__ && window.__astro_dev_toolbar__.root,
+        window.location.origin,
+      ])).filter(Boolean);
 
-      for (let i = 0; i < window.sessionStorage.length; i++) {
-        const key = window.sessionStorage.key(i);
-        if (!key || !key.startsWith(storagePrefix) || !key.endsWith(pathnameSuffix)) continue;
-
+      for (const scope of scopes) {
+        const key = REVIEW_STATE_PREFIX + ':' + scope;
         const value = window.sessionStorage.getItem(key);
         if (value === 'paused' || value === 'recording') return value;
       }

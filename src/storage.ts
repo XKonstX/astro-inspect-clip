@@ -6,7 +6,8 @@ const REVIEW_STATE_PREFIX = 'astro-inspect-clip:review-state:v1';
 
 export type ReviewState = 'closed' | 'paused' | 'recording';
 
-function getScopedStorageKey(prefix: string, scope: string): string {
+function getScopedStorageKey(prefix: string, scope: string, pathScoped = true): string {
+  if (!pathScoped) return `${prefix}:${scope}`;
   return `${prefix}:${scope}:${window.location.pathname}`;
 }
 
@@ -19,21 +20,26 @@ function getStorageScopes(): string[] {
     .filter((scope): scope is string => Boolean(scope));
 }
 
-function getStorageKeys(prefix: string): string[] {
+function getStorageKeys(prefix: string, options: { pathScoped?: boolean } = {}): string[] {
+  const pathScoped = options.pathScoped ?? true;
   return Array.from(new Set([
-    ...getStorageScopes().map((scope) => getScopedStorageKey(prefix, scope)),
-    ...findStoredStorageKeys(prefix),
+    ...getStorageScopes().map((scope) => getScopedStorageKey(prefix, scope, pathScoped)),
+    ...(pathScoped ? findStoredStorageKeys(prefix, { pathScoped }) : []),
   ]));
 }
 
-function findStoredStorageKeys(prefix: string): string[] {
+function findStoredStorageKeys(prefix: string, options: { pathScoped?: boolean } = {}): string[] {
   const keys: string[] = [];
   const storagePrefix = `${prefix}:`;
   const pathnameSuffix = `:${window.location.pathname}`;
+  const pathScoped = options.pathScoped ?? true;
 
   for (let i = 0; i < window.sessionStorage.length; i++) {
     const key = window.sessionStorage.key(i);
-    if (key?.startsWith(storagePrefix) && key.endsWith(pathnameSuffix)) {
+    if (
+      key?.startsWith(storagePrefix)
+      && (pathScoped ? key.endsWith(pathnameSuffix) : !key.endsWith(pathnameSuffix))
+    ) {
       keys.push(key);
     }
   }
@@ -111,7 +117,7 @@ export function writeCommentContexts(entries: CommentedContextEntry[]): void {
 
 export function readReviewState(): ReviewState {
   try {
-    for (const key of getStorageKeys(REVIEW_STATE_PREFIX)) {
+    for (const key of getStorageKeys(REVIEW_STATE_PREFIX, { pathScoped: false })) {
       const value = window.sessionStorage.getItem(key);
       if (value === 'paused' || value === 'recording') return value;
     }
@@ -124,7 +130,7 @@ export function readReviewState(): ReviewState {
 
 export function writeReviewState(value: ReviewState): void {
   try {
-    for (const key of getStorageKeys(REVIEW_STATE_PREFIX)) {
+    for (const key of getStorageKeys(REVIEW_STATE_PREFIX, { pathScoped: false })) {
       if (value === 'closed') {
         window.sessionStorage.removeItem(key);
       } else {
