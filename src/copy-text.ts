@@ -1,4 +1,4 @@
-import type { CommentedContextEntry, NoSourceDiagnostic, SelectedEntry } from './types.js';
+import type { CommentedContextEntry, ElementContextInfo, NoSourceDiagnostic, SelectedEntry } from './types.js';
 import { cleanClasses, cleanHtml } from './dom-utils.js';
 import { toRelativePath } from './source-cache.js';
 
@@ -17,6 +17,7 @@ export function buildCopyText(entries: SelectedEntry[], note: string): string {
     lines.push(`Element: <${tagName}>`);
     if (classes) lines.push(`Classes: ${classes}`);
     lines.push(`HTML: ${htmlSnippet}`);
+    appendElementContext(lines, entries[0].context);
     if (isInherited) lines.push('(Source location resolved from parent)');
 
     const island = info.tagName === 'astro-island' ? element : element.closest('astro-island');
@@ -70,6 +71,7 @@ export function buildCopyText(entries: SelectedEntry[], note: string): string {
 
         if (classes) lines.push(`Classes: ${classes}`);
         lines.push(`HTML: ${htmlSnippet}`);
+        appendElementContext(lines, entry.context);
         if (entry.isInherited) lines.push('(Source location resolved from parent)');
         lines.push('');
       }
@@ -94,6 +96,7 @@ export function buildCompleteContextText(entries: CommentedContextEntry[]): stri
     lines.push(`Element: <${entry.tagName}>`);
     if (entry.classes) lines.push(`Classes: ${entry.classes}`);
     lines.push(`HTML: ${entry.htmlSnippet}`);
+    appendElementContext(lines, entry.context);
     if (entry.isInherited) lines.push('(Source location resolved from parent)');
     if (entry.instruction.trim()) {
       lines.push('');
@@ -103,6 +106,25 @@ export function buildCompleteContextText(entries: CommentedContextEntry[]): stri
   });
 
   return lines.join('\n');
+}
+
+function appendElementContext(lines: string[], context: ElementContextInfo | undefined): void {
+  if (!context) return;
+
+  const contextLines: string[] = [];
+  if (context.route) contextLines.push(`Route: ${context.route}`);
+  if (context.pageTitle) contextLines.push(`Page title: ${context.pageTitle}`);
+  if (context.nearestHeading) contextLines.push(`Nearest heading: ${context.nearestHeading}`);
+  if (context.nearestLabelledRegion) contextLines.push(`Nearest labelled region: ${context.nearestLabelledRegion}`);
+  if (context.nearestFormContext) contextLines.push(`Nearest form context: ${context.nearestFormContext}`);
+  if (context.text) contextLines.push(`Text: ${context.text}`);
+  if (context.dataAttributes.length > 0) contextLines.push(`Data attrs: ${context.dataAttributes.join(', ')}`);
+  if (context.domPath) contextLines.push(`DOM path: ${context.domPath}`);
+
+  if (contextLines.length === 0) return;
+
+  lines.push('Context:');
+  contextLines.forEach((line) => lines.push(line));
 }
 
 export function buildNoSourceCopyText(element: HTMLElement, diagnostic: NoSourceDiagnostic): string {

@@ -151,6 +151,22 @@ function isCommentedContextEntry(value: unknown): value is CommentedContextEntry
     && typeof entry.tagName === 'string'
     && typeof entry.classes === 'string'
     && typeof entry.htmlSnippet === 'string'
+    && (entry.context === undefined || isElementContextInfo(entry.context))
     && typeof entry.instruction === 'string'
     && typeof entry.isInherited === 'boolean';
+}
+
+function isElementContextInfo(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const context = value as Record<string, unknown>;
+
+  return typeof context.route === 'string'
+    && typeof context.pageTitle === 'string'
+    && typeof context.text === 'string'
+    && Array.isArray(context.dataAttributes)
+    && context.dataAttributes.every((item) => typeof item === 'string')
+    && typeof context.nearestHeading === 'string'
+    && typeof context.nearestLabelledRegion === 'string'
+    && typeof context.nearestFormContext === 'string'
+    && typeof context.domPath === 'string';
 }

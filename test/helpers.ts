@@ -59,6 +59,16 @@ export function makeEntry(overrides: Partial<SelectedEntry> = {}): SelectedEntry
       htmlSnippet: '<button class="cta">Click</button>',
     },
     isInherited: false,
+    context: {
+      route: '/admin',
+      pageTitle: 'Admin Dashboard',
+      text: 'Click',
+      dataAttributes: ['data-workflow-spec-open="dashboard-overview"'],
+      nearestHeading: 'Dashboard',
+      nearestLabelledRegion: 'Dashboard Aktionen',
+      nearestFormContext: '',
+      domPath: 'body > button.cta',
+    },
     ...overrides,
   };
 }
@@ -73,6 +83,16 @@ export function makeContext(overrides: Partial<CommentedContextEntry> = {}): Com
     tagName: 'button',
     classes: 'cta',
     htmlSnippet: '<button class="cta">Click</button>',
+    context: {
+      route: '/admin',
+      pageTitle: 'Admin Dashboard',
+      text: 'Click',
+      dataAttributes: ['data-workflow-spec-open="dashboard-overview"'],
+      nearestHeading: 'Dashboard',
+      nearestLabelledRegion: 'Dashboard Aktionen',
+      nearestFormContext: '',
+      domPath: 'body > button.cta',
+    },
     instruction: 'Make it clearer.',
     isInherited: false,
     ...overrides,

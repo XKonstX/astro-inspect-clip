@@ -15,6 +15,25 @@ export interface ElementInfo {
   htmlSnippet: string;
 }
 
+export interface ElementContextInfo {
+  /** Current browser path, including search/hash when available. */
+  route: string;
+  /** Current document title. */
+  pageTitle: string;
+  /** Visible text of the selected element. */
+  text: string;
+  /** Relevant non-Astro data attributes on the selected element. */
+  dataAttributes: string[];
+  /** Nearest preceding document heading. */
+  nearestHeading: string;
+  /** Closest ancestor with an accessible label. */
+  nearestLabelledRegion: string;
+  /** Closest form label, legend, or accessible form name. */
+  nearestFormContext: string;
+  /** Compact path through the current DOM. */
+  domPath: string;
+}
+
 export interface SourceAnnotation {
   file: string;
   loc: string;
@@ -36,6 +55,7 @@ export interface SelectedEntry {
   element: HTMLElement;
   info: ElementInfo;
   isInherited: boolean;
+  context: ElementContextInfo;
 }
 
 export interface CommentedContextEntry {
@@ -47,6 +67,7 @@ export interface CommentedContextEntry {
   tagName: string;
   classes: string;
   htmlSnippet: string;
+  context?: ElementContextInfo;
   instruction: string;
   isInherited: boolean;
 }

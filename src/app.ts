@@ -3,7 +3,7 @@ import type { AppState, CommentedContextEntry, NoSourceDiagnostic, SelectedEntry
 import { handleCopy } from './clipboard.js';
 import { findCommentForEntry, getCommentId as getStoredCommentId, isSameCommentSource } from './comment-context.js';
 import { buildCompleteContextText, buildCopyText, buildNoSourceCopyText } from './copy-text.js';
-import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
+import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getElementContextInfo, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
 import { bindInstructionDraft, readCommentContexts, readInstructionDraft, readReviewState, writeCommentContexts, writeReviewState } from './storage.js';
 import { ensureSourceCache, getElementInfo, readSourceAnnotation, toRelativePath } from './source-cache.js';
 import { injectGlobalStyles, injectPanelStyles } from './styles.js';
@@ -188,6 +188,7 @@ export default {
         tagName: entry.element.tagName.toLowerCase(),
         classes: cleanClasses(typeof entry.element.className === 'string' ? entry.element.className : ''),
         htmlSnippet: rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml,
+        context: entry.context,
         instruction,
         isInherited: entry.isInherited,
       };
@@ -470,6 +471,7 @@ export default {
         element,
         info,
         isInherited: resolved !== element,
+        context: getElementContextInfo(element),
       };
       const removedId = getCommentId(entry);
 
@@ -493,6 +495,7 @@ export default {
         element,
         info,
         isInherited: resolved !== element,
+        context: getElementContextInfo(element),
       };
     }
 
@@ -1420,7 +1423,12 @@ export default {
       }
 
       const isInherited = resolved !== element;
-      const entry = { element, info, isInherited };
+      const entry = {
+        element,
+        info,
+        isInherited,
+        context: getElementContextInfo(element),
+      };
 
       if (isReviewMode) {
         clearSelection();

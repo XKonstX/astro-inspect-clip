@@ -28,6 +28,11 @@ export function cleanHtml(html: string): string {
   ).replace(/\s{2,}/g, ' ').trim();
 }
 
+export function compactText(value: string, maxLength = 120): string {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  return compacted.length > maxLength ? compacted.slice(0, maxLength - 3) + '...' : compacted;
+}
+
 export function getTraversalParent(element: HTMLElement): HTMLElement | null {
   if (element.parentElement) return element.parentElement;
 
@@ -73,6 +78,101 @@ export function buildDomPath(element: HTMLElement): string {
   }
 
   return parts.reverse().join(' > ');
+}
+
+export function getElementContextInfo(element: HTMLElement) {
+  const location = window.location;
+  const route = compactText([
+    location.pathname,
+    location.search,
+    location.hash,
+  ].join(''), 160);
+
+  return {
+    route,
+    pageTitle: compactText(document.title, 160),
+    text: compactText(element.innerText || element.textContent || ''),
+    dataAttributes: getRelevantDataAttributes(element),
+    nearestHeading: getNearestHeading(element),
+    nearestLabelledRegion: getNearestLabelledRegion(element),
+    nearestFormContext: getNearestFormContext(element),
+    domPath: buildDomPath(element),
+  };
+}
+
+function getRelevantDataAttributes(element: HTMLElement): string[] {
+  return Array
+    .from(element.attributes)
+    .filter((attr) =>
+      attr.name.startsWith('data-')
+      && !attr.name.startsWith('data-astro-')
+      && !attr.name.startsWith('data-vite-')
+    )
+    .map((attr) => `${attr.name}="${compactText(attr.value, 80)}"`)
+    .slice(0, 8);
+}
+
+function getNearestHeading(element: HTMLElement): string {
+  const headings = Array
+    .from(document.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))
+    .filter((heading) =>
+      !isDevToolbarElement(heading)
+      && heading.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
+
+  return compactText(headings.at(-1)?.innerText || headings.at(-1)?.textContent || '');
+}
+
+function getNearestLabelledRegion(element: HTMLElement): string {
+  const selector = '[aria-label], [aria-labelledby], section, article, aside, nav, main, header, footer, [role]';
+  let region = getTraversalParent(element);
+
+  while (region && !region.matches(selector)) {
+    region = getTraversalParent(region);
+  }
+
+  if (!region || isDevToolbarElement(region)) return '';
+
+  return getAccessibleName(region) || getContainedHeading(region, element);
+}
+
+function getNearestFormContext(element: HTMLElement): string {
+  const form = element.closest<HTMLElement>('form, fieldset, [role="form"]');
+  if (!form || isDevToolbarElement(form)) return '';
+
+  const labelledBy = getAccessibleName(form);
+  if (labelledBy) return labelledBy;
+
+  const legend = form.querySelector<HTMLElement>('legend');
+  return compactText(legend?.innerText || legend?.textContent || '');
+}
+
+function getContainedHeading(container: HTMLElement, beforeElement: HTMLElement): string {
+  const headings = Array
+    .from(container.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'))
+    .filter((heading) =>
+      heading !== beforeElement
+      && heading.compareDocumentPosition(beforeElement) & Node.DOCUMENT_POSITION_FOLLOWING
+    );
+
+  return compactText(headings.at(-1)?.innerText || headings.at(-1)?.textContent || '');
+}
+
+function getAccessibleName(element: HTMLElement): string {
+  const ariaLabel = element.getAttribute('aria-label');
+  if (ariaLabel) return compactText(ariaLabel);
+
+  const labelledBy = element.getAttribute('aria-labelledby');
+  if (!labelledBy) return '';
+
+  const label = labelledBy
+    .split(/\s+/)
+    .map((id) => document.getElementById(id))
+    .filter((labelElement): labelElement is HTMLElement => Boolean(labelElement))
+    .map((labelElement) => labelElement.innerText || labelElement.textContent || '')
+    .join(' ');
+
+  return compactText(label);
 }
 
 export function getElementFingerprint(element: HTMLElement): string {

@@ -2,12 +2,12 @@
 
 # astro-inspect-clip
 
-**Inspect Astro-rendered UI, collect source context, and copy focused instructions.**
+**Inspect Astro-rendered UI, collect source and DOM context, and copy focused instructions.**
 
 An Astro dev toolbar app for teams that use the browser as the fastest way to
-point at UI work. Click an element, resolve its source file and line, add an
-instruction, and copy a clean context block for your editor, assistant, review,
-or issue tracker.
+point at UI work. Click an element, resolve its source file and line, capture
+nearby route, heading, text, and data-attribute context, add an instruction, and
+copy a clean context block for your editor, assistant, review, or issue tracker.
 
 [![npm version](https://img.shields.io/npm/v/astro-inspect-clip?color=BC52EE&label=npm&logo=npm)](https://www.npmjs.com/package/astro-inspect-clip)
 [![npm downloads](https://img.shields.io/npm/dm/astro-inspect-clip?color=BC52EE)](https://www.npmjs.com/package/astro-inspect-clip)
@@ -66,6 +66,9 @@ projects can use `@2`.
 
 ## What's New In 2.0
 
+- DOM-aware copied context that includes route, page title, nearby heading or
+  labelled region, element text, relevant `data-*` attributes, and a compact DOM
+  path so reused components can be understood in their page context.
 - Review mode for collecting multiple commented UI contexts without keeping the
   toolbar panel open.
 - Floating review controls with start/stop, clear, and complete-context copy.
@@ -96,6 +99,12 @@ File: src/components/Header.astro:42:5
 Element: <nav>
 Classes: site-nav, is-sticky
 HTML: <nav class="site-nav is-sticky">...</nav>
+Context:
+Route: /docs
+Page title: Documentation
+Nearest heading: Product Docs
+Text: Docs
+DOM path: body > header.site-header > nav.site-nav
 Instruction:
 Make the navigation collapse below 768px.
 ```
@@ -145,9 +154,11 @@ When an element is selected, Inspect & Clip:
 
 1. reads cached Astro source metadata,
 2. walks up the DOM when child elements need to inherit source context,
-3. filters plugin-owned highlight classes out of copied HTML,
-4. stores review comments in page-scoped session storage,
-5. uses an instance fingerprint so repeated components are not confused.
+3. captures route, title, nearby heading/region/form, text, `data-*` attributes,
+   and a compact DOM path for page-level context,
+4. filters plugin-owned highlight classes out of copied HTML,
+5. stores review comments in page-scoped session storage,
+6. uses an instance fingerprint so repeated components are not confused.
 
 ## Requirements
 
