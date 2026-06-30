@@ -11,7 +11,8 @@ import { GLOBAL_STYLES } from './global-styles.js';
  *
  * Captures data-astro-source-file / data-astro-source-loc into a global Map
  * BEFORE Astro's built-in Audit toolbar app can remove them. The observer is
- * installed from <head>, so it also catches body nodes as the parser adds them.
+ * installed from <head>, and removeAttribute is wrapped so Audit-triggered
+ * removals synchronously preserve the attributes first.
  */
 const CACHE_SCRIPT = `
   const GLOBAL_STYLES = ${JSON.stringify(GLOBAL_STYLES)};
@@ -22,6 +23,7 @@ const CACHE_SCRIPT = `
   window.__ai_note_source_cache_late__ = false;
 
   const SOURCE_SELECTOR = '[data-astro-source-file], [data-astro-source-loc]';
+  const SOURCE_ATTR_NAMES = new Set(['data-astro-source-file', 'data-astro-source-loc']);
   const COMMENT_CONTEXT_PREFIX = 'astro-inspect-clip:comment-context:v1';
   const REVIEW_STATE_PREFIX = 'astro-inspect-clip:review-state:v1';
   const DEBUG_STORAGE_KEY = 'astro-inspect-clip:debug:v1';
@@ -95,6 +97,36 @@ const CACHE_SCRIPT = `
   function scanAll(root) {
     capture(root);
     root.querySelectorAll(SOURCE_SELECTOR).forEach(capture);
+  }
+
+  function captureBeforeSourceAttributeRemoval(element) {
+    if (!(element instanceof HTMLElement)) return;
+    capture(element);
+  }
+
+  function installSourceRemovalCacheHook() {
+    if (window.__ai_note_source_remove_attribute_hook__) return;
+    window.__ai_note_source_remove_attribute_hook__ = true;
+
+    const originalRemoveAttribute = Element.prototype.removeAttribute;
+    Element.prototype.removeAttribute = function removeAttributeWithSourceCache(name) {
+      if (SOURCE_ATTR_NAMES.has(String(name).toLowerCase())) {
+        captureBeforeSourceAttributeRemoval(this);
+      }
+
+      return originalRemoveAttribute.call(this, name);
+    };
+
+    const originalRemoveAttributeNode = Element.prototype.removeAttributeNode;
+    Element.prototype.removeAttributeNode = function removeAttributeNodeWithSourceCache(attribute) {
+      if (attribute && SOURCE_ATTR_NAMES.has(String(attribute.name).toLowerCase())) {
+        captureBeforeSourceAttributeRemoval(this);
+      }
+
+      return originalRemoveAttributeNode.call(this, attribute);
+    };
+
+    debugLog('source-cache-remove-attribute-hook-installed');
   }
 
   function ensureGlobalStyles() {
@@ -367,6 +399,7 @@ const CACHE_SCRIPT = `
   // Initial scan — capture everything available right now. When this runs from
   // <head>, document.body is usually not available yet; the observer below then
   // captures body markup as the HTML parser inserts it.
+  installSourceRemovalCacheHook();
   window.__ai_note_show_comment_marks__ = readReviewState() !== 'closed';
   if (document.body) scanAll(document.body);
   debugLog('source-cache-init', {

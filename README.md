@@ -200,46 +200,6 @@ When enabled, Inspect & Clip writes event decisions, comment-editor opens,
 source-resolution misses, and source-cache rehydration details to the console
 with the `[astro-inspect-clip]` prefix.
 
-Useful checks before publishing:
-
-```bash
-npm test
-npm run build
-npx tsc --noEmit
-npm publish --dry-run
-```
-
-### Automated npm Publishing
-
-Publish through GitHub Actions, not from the local terminal. A local
-`npm publish` asks for npm 2FA and is not the configured release path.
-
-The repository includes `.github/workflows/publish.yml` for npm Trusted
-Publishing via GitHub's OIDC token. Configure npm once:
-
-- Package: `astro-inspect-clip`
-- Publisher: GitHub Actions
-- Organization/user: `XKonstX`
-- Repository: `astro-inspect-clip`
-- Workflow filename: `publish.yml`
-
-Release checklist:
-
-1. Update `package.json` and `package-lock.json` to the new version.
-2. Run the checks listed above.
-3. Commit the version and code changes.
-4. Create a matching tag, for example `v2.0.5` for package version `2.0.5`.
-5. Push `main` and the tag to GitHub.
-
-The pushed tag triggers GitHub Actions, which runs tests, typecheck, verifies
-that the tag matches the package version, and publishes to npm without an npm
-token or OTP:
-
-```bash
-git tag vX.Y.Z
-git push origin main vX.Y.Z
-```
-
 ## License
 
 [MIT](./LICENSE)
