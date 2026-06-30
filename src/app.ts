@@ -759,6 +759,26 @@ export default {
       });
     }
 
+    function createRuntimeReviewEntry(element: HTMLElement, diagnostic: NoSourceDiagnostic | null): SelectedEntry {
+      const domPath = diagnostic?.domPath ?? buildDomPath(element);
+      const rawHtml = cleanHtml(element.outerHTML);
+      const htmlSnippet = rawHtml.length > 120 ? rawHtml.slice(0, 117) + '...' : rawHtml;
+
+      return {
+        element,
+        info: {
+          filePath: `runtime:${window.location.origin}${window.location.pathname}`,
+          relativePath: 'Runtime DOM',
+          location: domPath || describeElement(element),
+          tagName: element.tagName.toLowerCase(),
+          classes: cleanClasses(typeof element.className === 'string' ? element.className : ''),
+          htmlSnippet,
+        },
+        isInherited: false,
+        context: getElementContextInfo(element),
+      };
+    }
+
     function renderReviewBar() {
       const count = state.commentedContexts.length;
       const hasOpenPopover = reviewPopover.dataset.visible === 'true';
@@ -1443,6 +1463,22 @@ export default {
           nearestLoc: diagnostic?.nearest?.loc ?? '',
           domPath: diagnostic?.domPath ?? buildDomPath(element),
         });
+
+        if (isReviewMode) {
+          const runtimeEntry = createRuntimeReviewEntry(element, diagnostic);
+          debugLog('select-review-runtime', {
+            element: describeElement(element),
+            reason: diagnostic?.title,
+            domPath: runtimeEntry.info.location,
+          });
+          clearSelection();
+          element.classList.add('ai-note-selected');
+          state.selectedElements = [runtimeEntry];
+          renderReviewPopover(runtimeEntry);
+          foldToolbarPanel();
+          return;
+        }
+
         renderNoSourceInfo(element, diagnostic);
         return;
       }
