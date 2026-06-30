@@ -85,11 +85,16 @@ const CACHE_SCRIPT = `
     const file = el.getAttribute('data-astro-source-file');
     const loc = el.getAttribute('data-astro-source-loc');
     if (file || loc) {
-      cache.set(el, { file: file || '', loc: loc || '' });
+      const existing = cache.get(el) || { file: '', loc: '' };
+      const next = {
+        file: file || existing.file || '',
+        loc: loc || existing.loc || '',
+      };
+      cache.set(el, next);
       debugLog('source-cache-capture', {
         tag: el.tagName && el.tagName.toLowerCase(),
-        file: file || '',
-        loc: loc || '',
+        file: next.file,
+        loc: next.loc,
       });
     }
   }

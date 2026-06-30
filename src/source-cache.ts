@@ -29,7 +29,13 @@ export function ensureSourceCache(): void {
     if (!(element instanceof HTMLElement)) return;
     const file = element.getAttribute('data-astro-source-file') ?? '';
     const loc = element.getAttribute('data-astro-source-loc') ?? '';
-    if (file || loc) cache.set(element, { file, loc });
+    if (file || loc) {
+      const existing = cache.get(element) ?? { file: '', loc: '' };
+      cache.set(element, {
+        file: file || existing.file || '',
+        loc: loc || existing.loc || '',
+      });
+    }
   };
 
   if (document.documentElement) {
