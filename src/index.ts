@@ -19,6 +19,7 @@ const CACHE_SCRIPT = `
   const SOURCE_SELECTOR = '[data-astro-source-file], [data-astro-source-loc]';
   const COMMENT_CONTEXT_PREFIX = 'astro-inspect-clip:comment-context:v1';
   const REVIEW_STATE_PREFIX = 'astro-inspect-clip:review-state:v1';
+  const DEBUG_STORAGE_KEY = 'astro-inspect-clip:debug:v1';
   const PLUGIN_CLASSES = [
     'ai-note-selected',
     'ai-note-hover-outline',
@@ -27,11 +28,62 @@ const CACHE_SCRIPT = `
   ];
   let rehydrateFrame = 0;
 
+  function isDebugEnabled() {
+    if (typeof window.__astro_inspect_clip_debug__ === 'boolean') {
+      return window.__astro_inspect_clip_debug__;
+    }
+
+    try {
+      const stored = window.sessionStorage.getItem(DEBUG_STORAGE_KEY)
+        || window.localStorage.getItem(DEBUG_STORAGE_KEY);
+      return stored === '1' || stored === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  function debugLog(event, detail) {
+    if (!isDebugEnabled()) return;
+    if (detail) {
+      console.debug('[astro-inspect-clip]', event, detail);
+    } else {
+      console.debug('[astro-inspect-clip]', event);
+    }
+  }
+
+  function setDebugEnabled(enabled) {
+    window.__astro_inspect_clip_debug__ = enabled;
+
+    try {
+      if (enabled) {
+        window.sessionStorage.setItem(DEBUG_STORAGE_KEY, '1');
+      } else {
+        window.sessionStorage.removeItem(DEBUG_STORAGE_KEY);
+        window.localStorage.removeItem(DEBUG_STORAGE_KEY);
+      }
+    } catch {}
+
+    debugLog('debug-mode', { enabled });
+    return enabled;
+  }
+
+  window.__astroInspectClipDebug = {
+    enable: () => setDebugEnabled(true),
+    disable: () => setDebugEnabled(false),
+    toggle: (force) => setDebugEnabled(force ?? !isDebugEnabled()),
+    status: () => isDebugEnabled(),
+  };
+
   function capture(el) {
     const file = el.getAttribute('data-astro-source-file');
     const loc = el.getAttribute('data-astro-source-loc');
     if (file || loc) {
       cache.set(el, { file: file || '', loc: loc || '' });
+      debugLog('source-cache-capture', {
+        tag: el.tagName && el.tagName.toLowerCase(),
+        file: file || '',
+        loc: loc || '',
+      });
     }
   }
 
@@ -275,17 +327,30 @@ const CACHE_SCRIPT = `
 
   function rehydrateCommentMarks() {
     rehydrateFrame = 0;
-    if (!window.__ai_note_show_comment_marks__) return;
+    if (!window.__ai_note_show_comment_marks__) {
+      debugLog('comment-marks-skip', { reason: 'marks-disabled' });
+      return;
+    }
 
     const contexts = readCommentContexts();
 
-    if (contexts.length === 0) return;
+    if (contexts.length === 0) {
+      debugLog('comment-marks-skip', { reason: 'no-contexts' });
+      return;
+    }
 
     ensureGlobalStyles();
 
     for (const context of contexts) {
       const [element] = findElementsForComment(context);
       if (element) element.classList.add('ai-note-commented');
+      debugLog('comment-mark-rehydrate', {
+        id: context.id,
+        found: Boolean(element),
+        file: context.filePath,
+        loc: context.location,
+        tag: context.tagName,
+      });
     }
   }
 
@@ -297,6 +362,10 @@ const CACHE_SCRIPT = `
   // Initial scan — capture everything available right now
   window.__ai_note_show_comment_marks__ = readReviewState() !== 'closed';
   if (document.body) scanAll(document.body);
+  debugLog('source-cache-init', {
+    cachedElements: cache.size,
+    showCommentMarks: window.__ai_note_show_comment_marks__,
+  });
   scheduleRehydrateCommentMarks();
   setTimeout(scheduleRehydrateCommentMarks, 50);
   setTimeout(scheduleRehydrateCommentMarks, 250);

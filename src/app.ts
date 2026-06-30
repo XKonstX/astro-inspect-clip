@@ -3,7 +3,8 @@ import type { AppState, CommentedContextEntry, NoSourceDiagnostic, SelectedEntry
 import { handleCopy } from './clipboard.js';
 import { findCommentForEntry, getCommentId as getStoredCommentId, isSameCommentSource } from './comment-context.js';
 import { buildCompleteContextText, buildCopyText, buildNoSourceCopyText } from './copy-text.js';
-import { buildDomPath, cleanClasses, cleanHtml, escapeHtml, getElementContextInfo, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
+import { buildDomPath, cleanClasses, cleanHtml, describeElement, escapeHtml, getElementContextInfo, getElementFingerprint, getTraversalParent, isDevToolbarElement } from './dom-utils.js';
+import { debugLog, installDebugApi } from './debug.js';
 import { bindInstructionDraft, readCommentContexts, readInstructionDraft, readReviewState, writeCommentContexts, writeReviewState } from './storage.js';
 import { ensureSourceCache, getElementInfo, readSourceAnnotation, toRelativePath } from './source-cache.js';
 import { injectGlobalStyles, injectPanelStyles } from './styles.js';
@@ -32,9 +33,15 @@ export default {
     let reviewPopoverDragOffset: { x: number; y: number } | null = null;
     let reviewBarManualPosition: { left: number; top: number } | null = null;
     let reviewBarDragOffset: { x: number; y: number } | null = null;
+    let suppressNextClick = false;
     const commentedElementsById = new Map<string, HTMLElement>();
 
     ensureSourceCache();
+    installDebugApi();
+    debugLog('app-init', {
+      comments: state.commentedContexts.length,
+      reviewState: readReviewState(),
+    });
 
     // ─── Toggle icons ───────────────────────────────────────────
     const selectIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path fill="currentColor" d="M6.646 10.646a.5.5 0 0 1 .708 0l2 2a.5.5 0 0 1-.708.708L7 11.207l-1.646 1.647a.5.5 0 1 1-.708-.708l2-2ZM2 2.5A.5.5 0 0 1 2.5 2h11a.5.5 0 0 1 .5.5v11a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 2 14v-11Zm1 1v10h10v-10H3Z"/></svg>';
@@ -908,8 +915,19 @@ export default {
 
     function openCommentEditorForElement(element: HTMLElement): boolean {
       const entry = getEntryForElement(element);
-      if (!entry) return false;
+      if (!entry) {
+        debugLog('comment-editor-miss', {
+          element: describeElement(element),
+          domPath: buildDomPath(element),
+        });
+        return false;
+      }
 
+      debugLog('comment-editor-open', {
+        element: describeElement(element),
+        file: entry.info.relativePath,
+        loc: entry.info.location,
+      });
       renderReviewPopover(entry);
       renderReviewBar();
       return true;
@@ -1418,6 +1436,13 @@ export default {
       const { element: resolved, info, diagnostic } = resolveSourceElement(element);
 
       if (!info) {
+        debugLog('select-no-source', {
+          element: describeElement(element),
+          reason: diagnostic?.title,
+          nearestFile: diagnostic?.nearest?.file ? toRelativePath(diagnostic.nearest.file) : '',
+          nearestLoc: diagnostic?.nearest?.loc ?? '',
+          domPath: diagnostic?.domPath ?? buildDomPath(element),
+        });
         renderNoSourceInfo(element, diagnostic);
         return;
       }
@@ -1431,6 +1456,13 @@ export default {
       };
 
       if (isReviewMode) {
+        debugLog('select-review', {
+          element: describeElement(element),
+          resolved: describeElement(resolved),
+          file: entry.info.relativePath,
+          loc: entry.info.location,
+          inherited: isInherited,
+        });
         clearSelection();
         element.classList.add('ai-note-selected');
         state.selectedElements = [entry];
@@ -1441,15 +1473,35 @@ export default {
 
       if (state.isMultiSelect) {
         if (state.selectedElements.some((selected) => selected.element === element)) {
+          debugLog('select-duplicate', {
+            element: describeElement(element),
+            file: entry.info.relativePath,
+            loc: entry.info.location,
+          });
           renderMultiSelectInspecting();
           return;
         }
 
+        debugLog('select-multi', {
+          element: describeElement(element),
+          resolved: describeElement(resolved),
+          file: entry.info.relativePath,
+          loc: entry.info.location,
+          inherited: isInherited,
+          count: state.selectedElements.length + 1,
+        });
         // Multi-select: add to array, keep inspecting
         element.classList.add('ai-note-selected');
         state.selectedElements.push(entry);
         renderMultiSelectInspecting();
       } else {
+        debugLog('select-single', {
+          element: describeElement(element),
+          resolved: describeElement(resolved),
+          file: entry.info.relativePath,
+          loc: entry.info.location,
+          inherited: isInherited,
+        });
         // Single-select: replace the active element, but keep inspecting so
         // another page click can collect the next comment immediately.
         clearSelection();
@@ -1550,8 +1602,16 @@ export default {
 
     // ─── Event handlers ───────────────────────────────────────
 
+    function getEventTargetElement(target: EventTarget | null): HTMLElement | null {
+      let element = target instanceof Element ? target : null;
+      while (element && !(element instanceof HTMLElement)) {
+        element = element.parentElement;
+      }
+      return element;
+    }
+
     function onMouseMove(e: MouseEvent) {
-      const target = e.target as HTMLElement;
+      const target = getEventTargetElement(e.target);
       if (!target || isDevToolbarElement(target)) return;
       if (reviewPopover.contains(target) || reviewBar.contains(target)) return;
 
@@ -1576,13 +1636,32 @@ export default {
     }
 
     function onClick(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (!target || isDevToolbarElement(target)) return;
+      const target = getEventTargetElement(e.target);
+      if (!target) {
+        debugLog('click-skip', { reason: 'no-html-target' });
+        return;
+      }
+      if (isDevToolbarElement(target)) return;
       if (reviewPopover.contains(target) || reviewBar.contains(target)) return;
       if (commentActions.contains(target)) return;
 
+      if (suppressNextClick) {
+        suppressNextClick = false;
+        debugLog('click-suppressed', {
+          target: describeElement(target),
+        });
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
       const commentedTarget = getCommentedClickTarget(target);
       if (commentedTarget && openCommentEditorForElement(commentedTarget)) {
+        debugLog('click-commented-target', {
+          target: describeElement(target),
+          commentedTarget: describeElement(commentedTarget),
+        });
         e.preventDefault();
         e.stopPropagation();
         e.stopImmediatePropagation();
@@ -1591,6 +1670,45 @@ export default {
 
       if (!state.isInspecting) return;
 
+      debugLog('click-select-fallback', {
+        target: describeElement(target),
+      });
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      selectElement(target);
+    }
+
+    function onPointerDown(e: PointerEvent) {
+      const target = getEventTargetElement(e.target);
+      if (!target) {
+        debugLog('pointerdown-skip', { reason: 'no-html-target' });
+        return;
+      }
+      if (isDevToolbarElement(target)) return;
+      if (reviewPopover.contains(target) || reviewBar.contains(target)) return;
+      if (commentActions.contains(target)) return;
+
+      const commentedTarget = getCommentedClickTarget(target);
+      if (commentedTarget && openCommentEditorForElement(commentedTarget)) {
+        suppressNextClick = true;
+        debugLog('pointerdown-commented-target', {
+          target: describeElement(target),
+          commentedTarget: describeElement(commentedTarget),
+          inspecting: state.isInspecting,
+        });
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+
+      if (!state.isInspecting) return;
+
+      suppressNextClick = true;
+      debugLog('pointerdown-select', {
+        target: describeElement(target),
+      });
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
@@ -1633,6 +1751,7 @@ export default {
 
     function addGlobalListeners() {
       document.addEventListener('mousemove', onMouseMove, true);
+      document.addEventListener('pointerdown', onPointerDown, true);
       document.addEventListener('click', onClick, true);
       document.addEventListener('keydown', onKeyDown);
       window.addEventListener('scroll', updateFloatingReviewUi, true);
@@ -1641,6 +1760,7 @@ export default {
 
     function removeGlobalListeners() {
       document.removeEventListener('mousemove', onMouseMove, true);
+      document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('click', onClick, true);
       document.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('scroll', updateFloatingReviewUi, true);

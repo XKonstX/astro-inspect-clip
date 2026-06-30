@@ -181,12 +181,50 @@ npm run build
 npm run demo
 ```
 
+### Runtime Debugging
+
+Debug logging is off by default. In the browser console, enable it while the
+dev server is running:
+
+```js
+window.__astroInspectClipDebug.enable()
+```
+
+Disable it again without reloading:
+
+```js
+window.__astroInspectClipDebug.disable()
+```
+
+When enabled, Inspect & Clip writes event decisions, comment-editor opens,
+source-resolution misses, and source-cache rehydration details to the console
+with the `[astro-inspect-clip]` prefix.
+
 Useful checks before publishing:
 
 ```bash
 npm run build
 npx tsc --noEmit
 npm publish --dry-run
+```
+
+### Automated npm Publishing
+
+The repository includes `.github/workflows/publish.yml` for npm Trusted
+Publishing. Configure npm once:
+
+- Package: `astro-inspect-clip`
+- Publisher: GitHub Actions
+- Organization/user: `XKonstX`
+- Repository: `astro-inspect-clip`
+- Workflow filename: `publish.yml`
+
+After that, publish from GitHub Actions without an npm token or OTP by creating
+and pushing a version tag:
+
+```bash
+git tag v2.0.4
+git push origin v2.0.4
 ```
 
 ## License

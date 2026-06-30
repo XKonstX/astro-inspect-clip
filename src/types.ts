@@ -86,6 +86,8 @@ declare global {
     __ai_note_source_cache__?: Map<HTMLElement, SourceAnnotation>;
     __ai_note_source_cache_late__?: boolean;
     __ai_note_show_comment_marks__?: boolean;
+    __astro_inspect_clip_debug__?: boolean;
+    __astroInspectClipDebug?: import('./debug.js').InspectClipDebugApi;
     __astro_dev_toolbar__?: {
       root?: string;
     };
