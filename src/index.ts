@@ -4,17 +4,22 @@ import { GLOBAL_STYLES } from './global-styles.js';
 
 /**
  * Script content for the source-attribute cache.
- * DEV-ONLY: Injected via injectScript('page') so it runs as a module on every page.
+ * DEV-ONLY: Injected via injectScript('head-inline') so it runs before the
+ * dev toolbar can strip Astro source annotations from the document.
  * This script MUST NOT run in production — it contains a MutationObserver that would
  * leak memory and serve no purpose outside of development.
  *
- * Captures data-astro-source-file / data-astro-source-loc into a global
- * Map BEFORE Astro's built-in Audit toolbar app can remove them.
+ * Captures data-astro-source-file / data-astro-source-loc into a global Map
+ * BEFORE Astro's built-in Audit toolbar app can remove them. The observer is
+ * installed from <head>, so it also catches body nodes as the parser adds them.
  */
 const CACHE_SCRIPT = `
   const GLOBAL_STYLES = ${JSON.stringify(GLOBAL_STYLES)};
-  const cache = new Map();
+  const cache = window.__ai_note_source_cache__ instanceof Map
+    ? window.__ai_note_source_cache__
+    : new Map();
   window.__ai_note_source_cache__ = cache;
+  window.__ai_note_source_cache_late__ = false;
 
   const SOURCE_SELECTOR = '[data-astro-source-file], [data-astro-source-loc]';
   const COMMENT_CONTEXT_PREFIX = 'astro-inspect-clip:comment-context:v1';
@@ -359,16 +364,26 @@ const CACHE_SCRIPT = `
     rehydrateFrame = requestAnimationFrame(rehydrateCommentMarks);
   }
 
-  // Initial scan — capture everything available right now
+  // Initial scan — capture everything available right now. When this runs from
+  // <head>, document.body is usually not available yet; the observer below then
+  // captures body markup as the HTML parser inserts it.
   window.__ai_note_show_comment_marks__ = readReviewState() !== 'closed';
   if (document.body) scanAll(document.body);
   debugLog('source-cache-init', {
     cachedElements: cache.size,
     showCommentMarks: window.__ai_note_show_comment_marks__,
+    readyState: document.readyState,
   });
   scheduleRehydrateCommentMarks();
   setTimeout(scheduleRehydrateCommentMarks, 50);
   setTimeout(scheduleRehydrateCommentMarks, 250);
+  document.addEventListener('DOMContentLoaded', () => {
+    if (document.body) scanAll(document.body);
+    debugLog('source-cache-domcontentloaded', {
+      cachedElements: cache.size,
+    });
+    scheduleRehydrateCommentMarks();
+  }, { once: true });
 
   // MutationObserver: catch new elements AND attribute removals
   const observer = new MutationObserver((mutations) => {
@@ -435,11 +450,11 @@ export default function astroInspectClip(): AstroIntegration {
           entrypoint: fileURLToPath(new URL('./app.js', import.meta.url)),
         });
 
-        // 2) Inject the source-cache script on every page (dev-only)
-        //    'page' scope = runs on every page as a <script type="module">
-        //    Must not run in production — MutationObserver would leak memory
+        // 2) Inject the source-cache script on every page (dev-only).
+        //    It must run from <head> so it can cache source annotations before
+        //    the dev toolbar removes them.
         if (command === 'dev') {
-          injectScript('page', CACHE_SCRIPT);
+          injectScript('head-inline', CACHE_SCRIPT);
         }
       },
     },
